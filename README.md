@@ -30,6 +30,10 @@ Go 实现的无状态通信中枢。Relay 在 iPhone App 和 Mac Agent 之间转
 
 MVP 无鉴权、数据库、业务 Task、队列和执行历史。只能用于可信局域网、Tailscale 或等价私有网络，不能直接暴露到公网。
 
+## 发布状态
+
+当前为 **Unreleased**，尚未形成生产兼容基线。首个正式版本发布前允许直接进行破坏性调整，不提供旧协议、旧配置或旧部署方式兼容；所有重要变更记录在 [CHANGELOG.md](CHANGELOG.md)。
+
 ## 本地启动
 
 ```bash
