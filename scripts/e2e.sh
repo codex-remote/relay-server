@@ -51,21 +51,75 @@ git -C "$project_dir" config user.email "e2e@example.invalid"
 git -C "$project_dir" add .
 git -C "$project_dir" commit -qm "test: create Relay E2E fixture"
 
-cat > "$test_root/fake-codex" <<'EOF'
-#!/bin/sh
-cat > greeting.go <<'GOEOF'
-package greeting
+cat > "$test_root/fake_app_server.go" <<'EOF'
+package main
 
-func Greet() string { return "after" }
-GOEOF
-echo "fake Codex changed greeting.go" >&2
-echo "Relay end-to-end run completed"
+import (
+	"bufio"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"time"
+)
+
+type request struct {
+	ID     json.RawMessage `json:"id"`
+	Method string          `json:"method"`
+	Params json.RawMessage `json:"params"`
+}
+
+func main() {
+	scanner := bufio.NewScanner(os.Stdin)
+	writer := bufio.NewWriter(os.Stdout)
+	encoder := json.NewEncoder(writer)
+	respond := func(id json.RawMessage, result any) {
+		_ = encoder.Encode(map[string]any{"id": json.RawMessage(id), "result": result})
+		_ = writer.Flush()
+	}
+	notify := func(method string, params any) {
+		_ = encoder.Encode(map[string]any{"method": method, "params": params})
+		_ = writer.Flush()
+	}
+
+	for scanner.Scan() {
+		var incoming request
+		if json.Unmarshal(scanner.Bytes(), &incoming) != nil || len(incoming.ID) == 0 {
+			continue
+		}
+		switch incoming.Method {
+		case "initialize":
+			respond(incoming.ID, map[string]any{"userAgent": "fake-codex-app-server"})
+		case "thread/list":
+			respond(incoming.ID, map[string]any{"data": []any{}, "nextCursor": nil})
+		case "thread/start", "thread/resume":
+			var params map[string]any
+			_ = json.Unmarshal(incoming.Params, &params)
+			cwd, _ := params["cwd"].(string)
+			respond(incoming.ID, map[string]any{"thread": map[string]any{
+				"id": "thread-e2e", "name": "Relay E2E", "cwd": cwd,
+				"preview": "Relay E2E", "status": map[string]any{"type": "idle"},
+				"source": "appServer", "createdAt": time.Now().Unix(), "updatedAt": time.Now().Unix(),
+			}})
+		case "turn/start":
+			var params map[string]any
+			_ = json.Unmarshal(incoming.Params, &params)
+			cwd, _ := params["cwd"].(string)
+			respond(incoming.ID, map[string]any{"turn": map[string]any{"id": "turn-e2e", "status": "inProgress"}})
+			_ = os.WriteFile(filepath.Join(cwd, "greeting.go"), []byte("package greeting\n\nfunc Greet() string { return \"after\" }\n"), 0o644)
+			notify("item/commandExecution/outputDelta", map[string]any{"threadId": "thread-e2e", "turnId": "turn-e2e", "delta": "fake Codex changed greeting.go\n"})
+			notify("item/agentMessage/delta", map[string]any{"threadId": "thread-e2e", "turnId": "turn-e2e", "delta": "Relay end-to-end turn completed."})
+			notify("turn/completed", map[string]any{"threadId": "thread-e2e", "turn": map[string]any{"id": "turn-e2e", "status": "completed", "durationMs": 25}})
+		case "turn/interrupt":
+			respond(incoming.ID, map[string]any{})
+		}
+	}
+}
 EOF
-chmod +x "$test_root/fake-codex"
 
 go build -C "$relay_root" -o "$test_root/relay" ./cmd/relay
 go build -C "$relay_root" -o "$test_root/relayctl" ./cmd/relayctl
 go build -C "$mac_agent_root" -o "$test_root/mac-agent" ./cmd/agent
+go build -o "$test_root/fake-codex" "$test_root/fake_app_server.go"
 
 "$test_root/relay" --listen "127.0.0.1:$port" >"$relay_log" 2>&1 &
 relay_pid=$!
@@ -78,7 +132,8 @@ done
 curl -fsS "http://127.0.0.1:$port/healthz" >/dev/null
 
 AGENT_RELAY_URL="ws://127.0.0.1:$port/ws/agent" \
-AGENT_WORKING_DIR="$project_dir" \
+AGENT_WORKSPACE_ROOTS="$project_dir" \
+AGENT_PROJECT_SCAN_DEPTH=1 \
 AGENT_CODEX_BINARY="$test_root/fake-codex" \
 "$test_root/mac-agent" serve >"$agent_log" 2>&1 &
 agent_pid=$!
@@ -90,8 +145,16 @@ for _ in {1..50}; do
 done
 curl -fsS "http://127.0.0.1:$port/status" | grep -q '"agent_connected":true'
 
-"$test_root/relayctl" run \
+projects_output="$("$test_root/relayctl" projects --url "ws://127.0.0.1:$port/ws/app")"
+project_id="$(printf '%s\n' "$projects_output" | awk 'NR == 1 { print $1 }')"
+if [[ -z "$project_id" ]]; then
+	echo "No project returned by project.snapshot" >&2
+	exit 1
+fi
+
+"$test_root/relayctl" turn \
 	--url "ws://127.0.0.1:$port/ws/app" \
+	--project "$project_id" \
 	--prompt "Change Greet to return after and run the tests."
 
 (cd "$project_dir" && go test ./...)
@@ -99,5 +162,5 @@ git -C "$project_dir" diff --check
 grep -q 'return "after"' "$project_dir/greeting.go"
 
 echo
-echo "Relay + Mac Agent end-to-end test passed."
+echo "Relay + Mac Agent Project/Thread/Turn end-to-end test passed."
 echo "Artifacts: $test_root"

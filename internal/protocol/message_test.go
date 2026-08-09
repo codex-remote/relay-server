@@ -6,7 +6,7 @@ import (
 )
 
 func TestMessageRoundTrip(t *testing.T) {
-	want, err := NewMessage(TypeRunStart, "run-1", Sender{Kind: "user", ID: "test"}, RunStartPayload{RunID: "run-1", Prompt: "fix tests"})
+	want, err := NewMessage(TypeTurnStart, "trace-1", Sender{Kind: "user", ID: "test"}, TurnStartPayload{ProjectID: "project-1", Prompt: "fix tests"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -18,33 +18,33 @@ func TestMessageRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Type != TypeRunStart || got.TraceID != "run-1" {
+	if got.Type != TypeTurnStart || got.TraceID != "trace-1" {
 		t.Fatalf("decoded message = %#v", got)
 	}
-	payload, err := PayloadAs[RunStartPayload](got)
+	payload, err := PayloadAs[TurnStartPayload](got)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if payload.Prompt != "fix tests" {
+	if payload.ProjectID != "project-1" || payload.Prompt != "fix tests" {
 		t.Fatalf("payload = %#v", payload)
 	}
 }
 
 func TestAllowedFrom(t *testing.T) {
-	if !AllowedFrom(RoleApp, TypeRunStart) || AllowedFrom(RoleApp, TypeRunOutput) {
+	if !AllowedFrom(RoleApp, TypeTurnStart) || AllowedFrom(RoleApp, TypeTurnOutput) {
 		t.Fatal("unexpected App direction rules")
 	}
-	if !AllowedFrom(RoleAgent, TypeRunOutput) || AllowedFrom(RoleAgent, TypeRunStart) {
+	if !AllowedFrom(RoleAgent, TypeTurnOutput) || AllowedFrom(RoleAgent, TypeTurnStart) {
 		t.Fatal("unexpected Agent direction rules")
 	}
 }
 
 func TestDecodeRejectsUnsupportedVersion(t *testing.T) {
-	message, err := NewMessage(TypeRunStart, "run-1", Sender{Kind: "user", ID: "test"}, RunStartPayload{RunID: "run-1", Prompt: "fix"})
+	message, err := NewMessage(TypeTurnStart, "trace-1", Sender{Kind: "user", ID: "test"}, TurnStartPayload{ProjectID: "project-1", Prompt: "fix"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	message.SpecVersion = "2.0"
+	message.SpecVersion = "1.0"
 	data, _ := json.Marshal(message)
 	if _, err := Decode(data); err == nil {
 		t.Fatal("Decode() accepted unsupported version")

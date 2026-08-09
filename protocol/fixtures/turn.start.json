@@ -1,0 +1,13 @@
+{
+  "spec_version": "2.0",
+  "message_id": "118f47f271a247cc88498b335d455175",
+  "type": "turn.start",
+  "occurred_at": "2026-08-10T01:01:00Z",
+  "trace_id": "3cfad7be5e5e43f694db6f53ad52c918",
+  "sender": { "kind": "user", "id": "local-user" },
+  "payload": {
+    "project_id": "project_9ee725d8a4b33e8da19d02d4",
+    "thread_id": "0198c3a0-ff21-7330-a910-62b85a688f70",
+    "prompt": "Fix the failing tests and explain the change."
+  }
+}

@@ -1,7 +1,6 @@
 package router
 
 import (
-	"encoding/json"
 	"log/slog"
 
 	"github.com/ai-coding-remote/relay-server/internal/hub"
@@ -55,7 +54,7 @@ func (r *Router) Disconnect(peer hub.Peer) {
 
 func (r *Router) Handle(peer hub.Peer, message protocol.Message) {
 	if !protocol.AllowedFrom(peer.Role(), message.Type) {
-		r.Reject(peer, message.TraceID, runID(message), "MESSAGE_INVALID", "message type is not allowed from this connection")
+		r.Reject(peer, message.TraceID, "MESSAGE_INVALID", "message type is not allowed from this connection")
 		return
 	}
 	message.Sender = protocol.CanonicalSender(peer.Role())
@@ -69,7 +68,7 @@ func (r *Router) Handle(peer hub.Peer, message protocol.Message) {
 	target := r.registry.Peer(targetRole)
 	if target == nil {
 		if peer.Role() == protocol.RoleApp {
-			r.Reject(peer, message.TraceID, runID(message), "AGENT_OFFLINE", "Mac Agent is not connected")
+			r.Reject(peer, message.TraceID, "AGENT_OFFLINE", "Mac Agent is not connected")
 		}
 		return
 	}
@@ -77,16 +76,16 @@ func (r *Router) Handle(peer hub.Peer, message protocol.Message) {
 		r.logger.Warn("Closing slow WebSocket", "role", target.Role(), "connection_id", target.ID(), "message_type", message.Type)
 		target.Close("send queue full")
 		if peer.Role() == protocol.RoleApp {
-			r.Reject(peer, message.TraceID, runID(message), "INTERNAL_ERROR", "Mac Agent connection is unavailable")
+			r.Reject(peer, message.TraceID, "INTERNAL_ERROR", "Mac Agent connection is unavailable")
 		}
 		return
 	}
 	r.logger.Debug("Message routed", "source", peer.Role(), "target", targetRole, "message_type", message.Type, "message_id", message.MessageID)
 }
 
-func (r *Router) Reject(peer hub.Peer, traceID, runID, code, message string) {
-	rejection, err := protocol.NewMessage(protocol.TypeRunRejected, traceID, protocol.Sender{Kind: "relay", ID: "local-relay"}, protocol.RunRejectedPayload{
-		RunID: runID, Code: code, Message: message,
+func (r *Router) Reject(peer hub.Peer, traceID, code, message string) {
+	rejection, err := protocol.NewMessage(protocol.TypeTurnRejected, traceID, protocol.Sender{Kind: "relay", ID: "local-relay"}, protocol.TurnRejectedPayload{
+		Code: code, Message: message,
 	})
 	if err != nil {
 		r.logger.Error("Create rejection", "error", err)
@@ -105,12 +104,4 @@ func (r *Router) sendAgentOffline(peer hub.Peer, traceID string) {
 	if err := peer.Send(message); err != nil {
 		peer.Close("send queue full")
 	}
-}
-
-func runID(message protocol.Message) string {
-	var payload struct {
-		RunID string `json:"run_id"`
-	}
-	_ = json.Unmarshal(message.Payload, &payload)
-	return payload.RunID
 }

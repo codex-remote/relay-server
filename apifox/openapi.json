@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "AI Coding Remote Relay Server",
-    "version": "0.1.0",
-    "description": "单用户 MVP 的 Relay HTTP 调试接口。WebSocket 长连接通过 Apifox 项目中的独立 WebSocket 接口调试。当前无应用层鉴权，只允许在可信局域网中使用。"
+    "version": "0.2.0",
+    "description": "单用户、多项目 MVP 的 Relay HTTP 调试接口。WebSocket 使用 spec_version 2.0 的 Project/Thread/Turn 协议，通过 Apifox 项目中的独立 WebSocket 接口调试。当前无应用层鉴权，只允许在可信局域网中使用。"
   },
   "servers": [
     {

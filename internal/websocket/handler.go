@@ -65,13 +65,13 @@ func (h *Handler) ServeRole(role string) http.HandlerFunc {
 				return
 			}
 			if messageType != ws.MessageText {
-				h.router.Reject(peer, "message", "", "MESSAGE_INVALID", "only WebSocket text messages are supported")
+				h.router.Reject(peer, "message", "MESSAGE_INVALID", "only WebSocket text messages are supported")
 				continue
 			}
 			message, err := protocol.Decode(data)
 			if err != nil {
 				h.logger.Warn("Invalid WebSocket message", "role", role, "connection_id", peer.ID(), "size", len(data), "error", err)
-				h.router.Reject(peer, "message", "", "MESSAGE_INVALID", err.Error())
+				h.router.Reject(peer, "message", "MESSAGE_INVALID", err.Error())
 				continue
 			}
 			h.router.Handle(peer, message)

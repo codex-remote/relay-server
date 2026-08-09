@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ai-coding-remote.local/protocol/v1/message.schema.json",
-  "title": "AI Coding Remote Message v1",
+  "$id": "https://ai-coding-remote.local/protocol/v2/message.schema.json",
+  "title": "AI Coding Remote Message v2",
   "type": "object",
   "additionalProperties": true,
   "required": [
@@ -14,22 +14,26 @@
     "payload"
   ],
   "properties": {
-    "spec_version": { "const": "1.0" },
+    "spec_version": { "const": "2.0" },
     "message_id": { "type": "string", "minLength": 1 },
     "type": {
       "type": "string",
       "enum": [
         "agent.hello",
         "agent.status",
-        "run.start",
-        "run.started",
-        "run.output",
-        "run.snapshot",
-        "run.cancel",
-        "run.cancelled",
-        "run.completed",
-        "run.failed",
-        "run.rejected"
+        "project.list",
+        "project.snapshot",
+        "thread.list",
+        "thread.snapshot",
+        "turn.start",
+        "turn.started",
+        "turn.output",
+        "turn.snapshot",
+        "turn.interrupt",
+        "turn.interrupted",
+        "turn.completed",
+        "turn.failed",
+        "turn.rejected"
       ]
     },
     "occurred_at": { "type": "string", "format": "date-time" },

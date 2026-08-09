@@ -6,25 +6,29 @@
 | --- | --- | --- |
 | `GET /healthz` | Client -> Relay | Process health |
 | `GET /status` | Client -> Relay | Current App and Agent connections |
-| `/ws/app` | App <-> Relay | Submit/cancel Run and receive events |
-| `/ws/agent` | Mac Agent <-> Relay | Receive commands and publish execution events |
+| `/ws/app` | App <-> Relay | Project/Thread discovery and Turn control |
+| `/ws/agent` | Mac Agent <-> Relay | Local inventory and Codex Turn execution |
 
-## Message directions
+## Protocol baseline
 
-App may send `run.start` and `run.cancel`.
+Only `spec_version: "2.0"` is accepted. There is no translation for removed `1.0 run.*` messages.
 
-Agent may send `agent.hello`, `agent.status`, `run.started`, `run.output`, `run.snapshot`, `run.cancelled`, `run.completed`, `run.failed`, and `run.rejected`.
+App may send `project.list`, `thread.list`, `turn.start`, and `turn.interrupt`.
 
-The Relay overwrites `sender` according to the WebSocket endpoint. The Envelope fields `spec_version`, `message_id`, `type`, `occurred_at`, `trace_id`, `sender`, and `payload` are required.
+Agent may send `agent.hello`, `agent.status`, `project.snapshot`, `thread.snapshot`, `turn.started`, `turn.output`, `turn.snapshot`, `turn.interrupted`, `turn.completed`, `turn.failed`, and `turn.rejected`.
+
+Relay overwrites `sender` according to the WebSocket endpoint. Envelope fields `spec_version`, `message_id`, `type`, `occurred_at`, `trace_id`, `sender`, and `payload` are required.
 
 ## Manual test
 
 1. Start Relay on `:8080`.
-2. Start the real Mac Agent against `ws://127.0.0.1:8080/ws/agent`.
-3. In Apifox Desktop, open `iPhone App 控制通道` and connect.
-4. Confirm receipt of `agent.hello` and `agent.status`.
-5. Send the `run.start` example from the interface description with a new `message_id`, `trace_id`, and matching `payload.run_id`.
-6. Observe `run.started`, streamed `run.output`, and one terminal event.
-7. To cancel, send `run.cancel` with the same Run ID.
+2. Start the real Mac Agent with at least one `--workspace-root`.
+3. Open `iPhone App 控制通道` in Apifox Desktop and connect.
+4. Confirm `agent.hello` and `agent.status`.
+5. Send the `project.list` example and copy a returned `project_id`.
+6. Send `thread.list` for that project.
+7. Send `turn.start`, omitting `thread_id` for a new session or using a returned Thread ID.
+8. Observe `turn.started`, streamed `turn.output`, and one terminal event.
+9. To stop an active Turn, send `turn.interrupt` with its `thread_id` and `turn_id`.
 
-Do not connect the Apifox `Mac Agent 执行通道` while a real Mac Agent run is active; the MVP allows only one Agent connection.
+Do not connect the Apifox Agent channel while the real Mac Agent is active; MVP allows one Agent connection.

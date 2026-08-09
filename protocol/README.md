@@ -1,9 +1,9 @@
-# Protocol v1
+# Protocol v2
 
-This directory is the language-neutral contract source for AI Coding Remote.
+This directory is the language-neutral contract source for AI Coding Remote MVP.
 
-- `schema/message.schema.json` defines the forward-compatible MVP envelope.
-- `fixtures/` contains messages that every Go and Swift implementation must decode.
-- Existing fields are not renamed within protocol `1.x`; optional fields and message types may be added.
+- `schema/message.schema.json` defines the `2.0` envelope and message names.
+- `fixtures/` contains Project/Thread/Turn messages for cross-client contract tests.
+- `2.0` is the only accepted version; removed `1.0 run.*` messages are not translated.
 
-The Relay validates the envelope and message direction. Each endpoint remains responsible for validating the payload it consumes.
+Relay validates the envelope and message direction. Mac Agent and iPhone validate payloads they consume. Breaking pre-release changes require an explicit protocol major-version update across all three repositories.

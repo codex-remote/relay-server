@@ -61,22 +61,22 @@ func TestWebSocketRoutesMessagesBothDirections(t *testing.T) {
 	if readMessage(t, app).Type != protocol.TypeAgentHello || readMessage(t, app).Type != protocol.TypeAgentStatus {
 		t.Fatal("App did not receive Agent state")
 	}
-	runStart, _ := protocol.NewMessage(protocol.TypeRunStart, "run-1", protocol.Sender{Kind: "spoofed", ID: "spoofed"}, protocol.RunStartPayload{RunID: "run-1", Prompt: "fix"})
-	writeMessage(t, app, runStart)
+	turnStart, _ := protocol.NewMessage(protocol.TypeTurnStart, "trace-1", protocol.Sender{Kind: "spoofed", ID: "spoofed"}, protocol.TurnStartPayload{ProjectID: "project-1", Prompt: "fix"})
+	writeMessage(t, app, turnStart)
 	forwarded := readMessage(t, agent)
-	if forwarded.Type != protocol.TypeRunStart || forwarded.Sender.Kind != "user" {
+	if forwarded.Type != protocol.TypeTurnStart || forwarded.Sender.Kind != "user" {
 		t.Fatalf("forwarded to Agent = %#v", forwarded)
 	}
 
-	output, _ := protocol.NewMessage(protocol.TypeRunOutput, "run-1", protocol.Sender{Kind: "spoofed", ID: "spoofed"}, protocol.RunOutputPayload{RunID: "run-1", Stream: "stdout", Text: "done\n"})
+	output, _ := protocol.NewMessage(protocol.TypeTurnOutput, "trace-1", protocol.Sender{Kind: "spoofed", ID: "spoofed"}, protocol.TurnOutputPayload{ProjectID: "project-1", ThreadID: "thread-1", TurnID: "turn-1", Stream: "stdout", Text: "done\n"})
 	writeMessage(t, agent, output)
 	forwarded = readMessage(t, app)
-	if forwarded.Type != protocol.TypeRunOutput || forwarded.Sender.Kind != "device" {
+	if forwarded.Type != protocol.TypeTurnOutput || forwarded.Sender.Kind != "device" {
 		t.Fatalf("forwarded to App = %#v", forwarded)
 	}
 }
 
-func TestWebSocketRejectsRunWhenAgentOffline(t *testing.T) {
+func TestWebSocketRejectsTurnWhenAgentOffline(t *testing.T) {
 	_, baseURL := testServer(t)
 	app, _, err := websocket.Dial(context.Background(), baseURL+"/ws/app", nil)
 	if err != nil {
@@ -86,11 +86,11 @@ func TestWebSocketRejectsRunWhenAgentOffline(t *testing.T) {
 	if status := readMessage(t, app); status.Type != protocol.TypeAgentStatus {
 		t.Fatalf("initial message = %#v", status)
 	}
-	runStart, _ := protocol.NewMessage(protocol.TypeRunStart, "run-1", protocol.Sender{Kind: "user", ID: "test"}, protocol.RunStartPayload{RunID: "run-1", Prompt: "fix"})
-	writeMessage(t, app, runStart)
+	turnStart, _ := protocol.NewMessage(protocol.TypeTurnStart, "trace-1", protocol.Sender{Kind: "user", ID: "test"}, protocol.TurnStartPayload{ProjectID: "project-1", Prompt: "fix"})
+	writeMessage(t, app, turnStart)
 	rejection := readMessage(t, app)
-	payload, _ := protocol.PayloadAs[protocol.RunRejectedPayload](rejection)
-	if rejection.Type != protocol.TypeRunRejected || payload.Code != "AGENT_OFFLINE" {
+	payload, _ := protocol.PayloadAs[protocol.TurnRejectedPayload](rejection)
+	if rejection.Type != protocol.TypeTurnRejected || payload.Code != "AGENT_OFFLINE" {
 		t.Fatalf("rejection = %#v %#v", rejection, payload)
 	}
 }
@@ -107,7 +107,7 @@ func TestWebSocketRejectsMalformedJSONWithoutStoppingServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	rejection := readMessage(t, app)
-	if rejection.Type != protocol.TypeRunRejected {
+	if rejection.Type != protocol.TypeTurnRejected {
 		t.Fatalf("rejection = %#v", rejection)
 	}
 	response, err := http.Get(httpServer.URL + "/healthz")
