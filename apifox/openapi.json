@@ -1,0 +1,112 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "AI Coding Remote Relay Server",
+    "version": "0.1.0",
+    "description": "单用户 MVP 的 Relay HTTP 调试接口。WebSocket 长连接通过 Apifox 项目中的独立 WebSocket 接口调试。当前无应用层鉴权，只允许在可信局域网中使用。"
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:8080",
+      "description": "本机 Relay"
+    },
+    {
+      "url": "http://192.168.68.125:8080",
+      "description": "当前局域网 Relay"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Relay 状态",
+      "description": "进程健康和 WebSocket 连接状态。"
+    }
+  ],
+  "paths": {
+    "/healthz": {
+      "get": {
+        "operationId": "getRelayHealth",
+        "summary": "检查 Relay 进程健康状态",
+        "description": "用于本地调试、Docker HEALTHCHECK 和部署平台存活探针。只表示 Relay 进程能够响应，不表示 App 或 Mac Agent 已连接。",
+        "tags": ["Relay 状态"],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Relay 进程正常",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HealthResponse" },
+                "example": { "status": "ok" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/status": {
+      "get": {
+        "operationId": "getRelayConnectionStatus",
+        "summary": "查询 Relay 当前连接状态",
+        "description": "返回单 App、单 Mac Agent MVP 当前是否存在活跃 WebSocket 连接。结果只保存在进程内存中。",
+        "tags": ["Relay 状态"],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "当前连接状态",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ConnectionStatus" },
+                "examples": {
+                  "agentOnly": {
+                    "summary": "Mac Agent 已连接",
+                    "value": {
+                      "app_connected": false,
+                      "agent_connected": true
+                    }
+                  },
+                  "allConnected": {
+                    "summary": "App 和 Mac Agent 均已连接",
+                    "value": {
+                      "app_connected": true,
+                      "agent_connected": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "HealthResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["status"],
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ok",
+            "description": "Relay 进程健康标记。"
+          }
+        }
+      },
+      "ConnectionStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["app_connected", "agent_connected"],
+        "properties": {
+          "app_connected": {
+            "type": "boolean",
+            "description": "是否存在活跃的 iPhone App 或 relayctl 连接。"
+          },
+          "agent_connected": {
+            "type": "boolean",
+            "description": "是否存在活跃的 Mac Agent 连接。"
+          }
+        }
+      }
+    }
+  }
+}

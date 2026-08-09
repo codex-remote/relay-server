@@ -1,0 +1,4 @@
+interface:
+  display_name: "AI Coding Remote Apifox Sync"
+  short_description: "同步 Relay HTTP 与 WebSocket 接口到 Apifox"
+  default_prompt: "Use $ai-coding-remote-apifox-sync to validate and sync the Relay API definitions to Apifox."

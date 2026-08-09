@@ -1,0 +1,11 @@
+{
+  "name": "iPhone App 控制通道",
+  "path": "ws://127.0.0.1:8080/ws/app",
+  "moduleId": 8356476,
+  "tags": ["Relay", "App", "MVP"],
+  "requestBody": {},
+  "parameters": {},
+  "commonParameters": {},
+  "advancedSettings": {},
+  "description": "## 用途\n\n模拟 iPhone App 向 Mac Agent 提交或取消一次 Run，并接收 Agent 状态、实时输出和最终 Git Diff。当前无鉴权，只能连接可信局域网 Relay。\n\n## App 可发送\n\n- `run.start`\n- `run.cancel`\n\n## App 可接收\n\n- `agent.hello`、`agent.status`\n- `run.started`、`run.output`、`run.snapshot`\n- `run.completed`、`run.failed`、`run.cancelled`、`run.rejected`\n\n## run.start 示例\n\n```json\n{\n  \"spec_version\": \"1.0\",\n  \"message_id\": \"11111111111141118111111111111111\",\n  \"type\": \"run.start\",\n  \"occurred_at\": \"2026-08-10T00:00:00Z\",\n  \"trace_id\": \"22222222222242228222222222222222\",\n  \"sender\": { \"kind\": \"user\", \"id\": \"apifox\" },\n  \"payload\": {\n    \"run_id\": \"22222222222242228222222222222222\",\n    \"prompt\": \"修复当前失败测试，运行测试，不要提交代码\"\n  }\n}\n```\n\nRelay 会按连接端点覆盖 `sender`；`run_id` 与 `trace_id` 在 MVP 中保持一致。"
+}

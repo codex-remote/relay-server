@@ -92,6 +92,39 @@ cd ../relay-server
 
 同一台 Mac 上调试时，把 IP 换成 `127.0.0.1`。
 
+## Apifox 调试
+
+Apifox 项目：`CodexRemote`（项目 ID `8693796`），默认模块：`Relay Server`（模块 ID `8356476`）。
+
+仓库包含项目专属 skill：
+
+```text
+.codex/skills/ai-coding-remote-apifox-sync/
+```
+
+本地校验和只读检查：
+
+```bash
+make apifox-validate
+make apifox-check
+```
+
+同步 HTTP 与 WebSocket 定义：
+
+```bash
+make apifox-sync
+```
+
+同步内容：
+
+- OpenAPI：`GET /healthz`、`GET /status`
+- WebSocket：`ws://127.0.0.1:8080/ws/app`
+- WebSocket：`ws://127.0.0.1:8080/ws/agent`
+
+需要先安装并登录官方 Apifox CLI。完整同步还要求在 Apifox 的 `项目设置 -> 功能设置 -> 外部 AI 编辑权限` 中允许主分支直接编辑；CLI `2.2.9` 的 WebSocket 命令不支持 AI 分支。
+
+在 Apifox Desktop 打开“iPhone App 控制通道”，连接后发送接口说明中的 `run.start` 示例，即可代替 iPhone App 调试。不要同时用 Apifox 和真实 Mac Agent 连接 `/ws/agent`，因为 MVP 同角色只保留一个连接。
+
 ## 一键集成测试
 
 ```bash
