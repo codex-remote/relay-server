@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-coding-remote.local/protocol/v1/message.schema.json",
+  "title": "AI Coding Remote Message v1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "spec_version",
+    "message_id",
+    "type",
+    "occurred_at",
+    "trace_id",
+    "sender",
+    "payload"
+  ],
+  "properties": {
+    "spec_version": { "const": "1.0" },
+    "message_id": { "type": "string", "minLength": 1 },
+    "type": {
+      "type": "string",
+      "enum": [
+        "agent.hello",
+        "agent.status",
+        "run.start",
+        "run.started",
+        "run.output",
+        "run.snapshot",
+        "run.cancel",
+        "run.cancelled",
+        "run.completed",
+        "run.failed",
+        "run.rejected"
+      ]
+    },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "trace_id": { "type": "string", "minLength": 1 },
+    "sender": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["user", "device", "relay"] },
+        "id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "payload": { "type": "object" }
+  }
+}

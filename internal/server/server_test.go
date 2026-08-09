@@ -1,0 +1,191 @@
+package server
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/ai-coding-remote/relay-server/internal/config"
+	"github.com/ai-coding-remote/relay-server/internal/protocol"
+	"github.com/coder/websocket"
+)
+
+func testServer(t *testing.T) (*httptest.Server, string) {
+	t.Helper()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	relay := New(config.Config{MaxMessageBytes: 256 * 1024, WriteQueueSize: 16, PingInterval: time.Second}, logger)
+	httpServer := httptest.NewServer(relay.Handler())
+	t.Cleanup(func() {
+		relay.CloseConnections("test complete")
+		httpServer.Close()
+	})
+	return httpServer, "ws" + strings.TrimPrefix(httpServer.URL, "http")
+}
+
+func TestHealthAndStatus(t *testing.T) {
+	httpServer, _ := testServer(t)
+	response, err := http.Get(httpServer.URL + "/healthz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("health status = %d", response.StatusCode)
+	}
+}
+
+func TestWebSocketRoutesMessagesBothDirections(t *testing.T) {
+	_, baseURL := testServer(t)
+	ctx := context.Background()
+	app, _, err := websocket.Dial(ctx, baseURL+"/ws/app", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.CloseNow()
+	readMessage(t, app)
+	agent, _, err := websocket.Dial(ctx, baseURL+"/ws/agent", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agent.CloseNow()
+	hello, _ := protocol.NewMessage(protocol.TypeAgentHello, "agent", protocol.Sender{Kind: "device", ID: "mac"}, protocol.AgentHelloPayload{Name: "Mac", Status: "idle"})
+	status, _ := protocol.NewMessage(protocol.TypeAgentStatus, "agent", protocol.Sender{Kind: "device", ID: "mac"}, protocol.AgentStatusPayload{Status: "idle"})
+	writeMessage(t, agent, hello)
+	writeMessage(t, agent, status)
+	if readMessage(t, app).Type != protocol.TypeAgentHello || readMessage(t, app).Type != protocol.TypeAgentStatus {
+		t.Fatal("App did not receive Agent state")
+	}
+	runStart, _ := protocol.NewMessage(protocol.TypeRunStart, "run-1", protocol.Sender{Kind: "spoofed", ID: "spoofed"}, protocol.RunStartPayload{RunID: "run-1", Prompt: "fix"})
+	writeMessage(t, app, runStart)
+	forwarded := readMessage(t, agent)
+	if forwarded.Type != protocol.TypeRunStart || forwarded.Sender.Kind != "user" {
+		t.Fatalf("forwarded to Agent = %#v", forwarded)
+	}
+
+	output, _ := protocol.NewMessage(protocol.TypeRunOutput, "run-1", protocol.Sender{Kind: "spoofed", ID: "spoofed"}, protocol.RunOutputPayload{RunID: "run-1", Stream: "stdout", Text: "done\n"})
+	writeMessage(t, agent, output)
+	forwarded = readMessage(t, app)
+	if forwarded.Type != protocol.TypeRunOutput || forwarded.Sender.Kind != "device" {
+		t.Fatalf("forwarded to App = %#v", forwarded)
+	}
+}
+
+func TestWebSocketRejectsRunWhenAgentOffline(t *testing.T) {
+	_, baseURL := testServer(t)
+	app, _, err := websocket.Dial(context.Background(), baseURL+"/ws/app", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.CloseNow()
+	if status := readMessage(t, app); status.Type != protocol.TypeAgentStatus {
+		t.Fatalf("initial message = %#v", status)
+	}
+	runStart, _ := protocol.NewMessage(protocol.TypeRunStart, "run-1", protocol.Sender{Kind: "user", ID: "test"}, protocol.RunStartPayload{RunID: "run-1", Prompt: "fix"})
+	writeMessage(t, app, runStart)
+	rejection := readMessage(t, app)
+	payload, _ := protocol.PayloadAs[protocol.RunRejectedPayload](rejection)
+	if rejection.Type != protocol.TypeRunRejected || payload.Code != "AGENT_OFFLINE" {
+		t.Fatalf("rejection = %#v %#v", rejection, payload)
+	}
+}
+
+func TestWebSocketRejectsMalformedJSONWithoutStoppingServer(t *testing.T) {
+	httpServer, baseURL := testServer(t)
+	app, _, err := websocket.Dial(context.Background(), baseURL+"/ws/app", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.CloseNow()
+	readMessage(t, app)
+	if err := app.Write(context.Background(), websocket.MessageText, []byte("{")); err != nil {
+		t.Fatal(err)
+	}
+	rejection := readMessage(t, app)
+	if rejection.Type != protocol.TypeRunRejected {
+		t.Fatalf("rejection = %#v", rejection)
+	}
+	response, err := http.Get(httpServer.URL + "/healthz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("health status = %d", response.StatusCode)
+	}
+}
+
+func TestNewAppConnectionReplacesOldConnection(t *testing.T) {
+	_, baseURL := testServer(t)
+	first, _, err := websocket.Dial(context.Background(), baseURL+"/ws/app", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.CloseNow()
+	readMessage(t, first)
+	second, _, err := websocket.Dial(context.Background(), baseURL+"/ws/app", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.CloseNow()
+	readMessage(t, second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if _, _, err := first.Read(ctx); err == nil {
+		t.Fatal("superseded App connection remained open")
+	}
+}
+
+func TestAgentDisconnectNotifiesApp(t *testing.T) {
+	_, baseURL := testServer(t)
+	app, _, err := websocket.Dial(context.Background(), baseURL+"/ws/app", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.CloseNow()
+	readMessage(t, app)
+	agent, _, err := websocket.Dial(context.Background(), baseURL+"/ws/agent", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hello, _ := protocol.NewMessage(protocol.TypeAgentHello, "agent", protocol.Sender{Kind: "device", ID: "mac"}, protocol.AgentHelloPayload{Name: "Mac", Status: "idle"})
+	writeMessage(t, agent, hello)
+	readMessage(t, app)
+	agent.CloseNow()
+	offline := readMessage(t, app)
+	payload, _ := protocol.PayloadAs[protocol.AgentStatusPayload](offline)
+	if offline.Type != protocol.TypeAgentStatus || payload.Status != "offline" {
+		t.Fatalf("offline message = %#v %#v", offline, payload)
+	}
+}
+
+func writeMessage(t *testing.T, connection *websocket.Conn, message protocol.Message) {
+	t.Helper()
+	data, err := json.Marshal(message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := connection.Write(context.Background(), websocket.MessageText, data); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func readMessage(t *testing.T, connection *websocket.Conn) protocol.Message {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, data, err := connection.Read(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	message, err := protocol.Decode(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return message
+}

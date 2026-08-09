@@ -1,0 +1,9 @@
+services:
+  relay:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      RELAY_LISTEN_ADDR: ":8080"
+      RELAY_LOG_LEVEL: "info"

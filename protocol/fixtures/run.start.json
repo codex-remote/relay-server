@@ -1,0 +1,12 @@
+{
+  "spec_version": "1.0",
+  "message_id": "018f47f271a247cc88498b335d455174",
+  "type": "run.start",
+  "occurred_at": "2026-08-09T13:45:00Z",
+  "trace_id": "2cfad7be5e5e43f694db6f53ad52c917",
+  "sender": { "kind": "user", "id": "local-user" },
+  "payload": {
+    "run_id": "2cfad7be5e5e43f694db6f53ad52c917",
+    "prompt": "Fix the failing test."
+  }
+}
