@@ -76,6 +76,50 @@ func TestWebSocketRoutesMessagesBothDirections(t *testing.T) {
 	}
 }
 
+func TestTurnAcknowledgementIsRoutedAndExposedInStatus(t *testing.T) {
+	httpServer, baseURL := testServer(t)
+	ctx := context.Background()
+	app, _, err := websocket.Dial(ctx, baseURL+"/ws/app", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.CloseNow()
+	readMessage(t, app)
+	agent, _, err := websocket.Dial(ctx, baseURL+"/ws/agent", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agent.CloseNow()
+
+	acknowledged, _ := protocol.NewMessage(
+		protocol.TypeTurnAcknowledged,
+		"trace-1",
+		protocol.Sender{Kind: "user", ID: "iphone"},
+		protocol.TurnAcknowledgedPayload{TurnID: "turn-1", Status: "completed"},
+	)
+	writeMessage(t, app, acknowledged)
+	forwarded := readMessage(t, agent)
+	if forwarded.Type != protocol.TypeTurnAcknowledged {
+		t.Fatalf("forwarded acknowledgement = %#v", forwarded)
+	}
+
+	response, err := http.Get(httpServer.URL + "/status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var status map[string]any
+	if err := json.NewDecoder(response.Body).Decode(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status["last_turn_acknowledged"] != "turn-1" || status["last_turn_acknowledged_status"] != "completed" {
+		t.Fatalf("status = %#v", status)
+	}
+	if status["app_connection_id"] == nil {
+		t.Fatalf("missing App connection generation: %#v", status)
+	}
+}
+
 func TestWebSocketRejectsTurnWhenAgentOffline(t *testing.T) {
 	_, baseURL := testServer(t)
 	app, _, err := websocket.Dial(context.Background(), baseURL+"/ws/app", nil)

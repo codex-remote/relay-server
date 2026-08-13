@@ -1,0 +1,12 @@
+{
+  "spec_version": "2.0",
+  "message_id": "aaaaaaaaaaaa4aaaaaaaaaaaaaaaaaac",
+  "type": "turn.acknowledged",
+  "occurred_at": "2026-08-11T08:00:00Z",
+  "trace_id": "66666666666646668666666666666666",
+  "sender": { "kind": "user", "id": "iphone" },
+  "payload": {
+    "turn_id": "019fe7db-0100-7000-8000-000000000001",
+    "status": "completed"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "spec_version": "2.0",
+  "message_id": "33333333333343338333333333333333",
+  "type": "thread.list",
+  "occurred_at": "2026-08-10T02:20:02Z",
+  "trace_id": "44444444444444448444444444444444",
+  "sender": { "kind": "user", "id": "local-user" },
+  "payload": {
+    "project_id": "project_9e8638437f803c29d91a3844"
+  }
+}

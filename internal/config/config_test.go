@@ -15,6 +15,21 @@ func TestFromEnv(t *testing.T) {
 	}
 }
 
+func TestFromEnvUsesFixedLocalPort(t *testing.T) {
+	t.Setenv("RELAY_LISTEN_ADDR", "")
+
+	config, err := FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if DefaultListenAddr != ":18765" {
+		t.Fatalf("DefaultListenAddr = %q, want fixed local port", DefaultListenAddr)
+	}
+	if config.ListenAddr != DefaultListenAddr {
+		t.Fatalf("ListenAddr = %q, want %q", config.ListenAddr, DefaultListenAddr)
+	}
+}
+
 func TestFromEnvRejectsInvalidValue(t *testing.T) {
 	t.Setenv("RELAY_WRITE_QUEUE_SIZE", "0")
 	if _, err := FromEnv(); err == nil {

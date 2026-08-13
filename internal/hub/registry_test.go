@@ -42,10 +42,33 @@ func TestRegistryCachesOnlyAgentState(t *testing.T) {
 	registry := NewRegistry()
 	hello, _ := protocol.NewMessage(protocol.TypeAgentHello, "agent", protocol.Sender{Kind: "device", ID: "mac"}, protocol.AgentHelloPayload{Name: "Mac"})
 	status, _ := protocol.NewMessage(protocol.TypeAgentStatus, "agent", protocol.Sender{Kind: "device", ID: "mac"}, protocol.AgentStatusPayload{Status: "idle"})
+	capabilities, _ := protocol.NewMessage(protocol.TypeAgentCapabilities, "agent", protocol.Sender{Kind: "device", ID: "mac"}, protocol.AgentCapabilitiesPayload{Restricted: true, SandboxMode: "workspace-write"})
 	registry.RememberAgentState(hello)
 	registry.RememberAgentState(status)
+	registry.RememberAgentState(capabilities)
 	state := registry.AgentState()
-	if len(state) != 2 || state[0].Type != protocol.TypeAgentHello || state[1].Type != protocol.TypeAgentStatus {
+	if len(state) != 3 || state[0].Type != protocol.TypeAgentHello || state[1].Type != protocol.TypeAgentStatus || state[2].Type != protocol.TypeAgentCapabilities {
 		t.Fatalf("AgentState() = %#v", state)
+	}
+}
+
+func TestRegistrySnapshotIncludesAppConnectionAndLatestTurnAcknowledgement(t *testing.T) {
+	registry := NewRegistry()
+	app := &fakePeer{id: 42, role: protocol.RoleApp}
+	registry.Replace(app)
+	acknowledged, _ := protocol.NewMessage(
+		protocol.TypeTurnAcknowledged,
+		"trace-1",
+		protocol.Sender{Kind: "user", ID: "iphone"},
+		protocol.TurnAcknowledgedPayload{TurnID: "turn-1", Status: "completed"},
+	)
+	registry.RememberAppState(acknowledged)
+
+	snapshot := registry.Snapshot()
+	if !snapshot.AppConnected || snapshot.AppConnectionID != 42 {
+		t.Fatalf("unexpected App snapshot: %#v", snapshot)
+	}
+	if snapshot.LastTurnAcknowledged != "turn-1" || snapshot.LastTurnAcknowledgedStatus != "completed" {
+		t.Fatalf("unexpected acknowledgement snapshot: %#v", snapshot)
 	}
 }

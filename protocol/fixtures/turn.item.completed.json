@@ -1,0 +1,24 @@
+{
+  "spec_version": "2.0",
+  "message_id": "33333333333343338333333333333333",
+  "type": "turn.item.completed",
+  "occurred_at": "2026-08-10T01:01:03Z",
+  "trace_id": "3cfad7be5e5e43f694db6f53ad52c918",
+  "sender": { "kind": "device", "id": "local-mac" },
+  "payload": {
+    "project_id": "project_9ee725d8a4b33e8da19d02d4",
+    "thread_id": "0198c3a0-ff21-7330-a910-62b85a688f70",
+    "turn_id": "0198c3a1-932f-7ca1-8ca6-29c07dd85aae",
+    "sequence": 3,
+    "item": {
+      "id": "item-command",
+      "type": "commandExecution",
+      "status": "completed",
+      "command": "go test ./...",
+      "output": "ok example/internal/order\n",
+      "exit_code": 0,
+      "duration_ms": 1420,
+      "truncated": false
+    }
+  }
+}

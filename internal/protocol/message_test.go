@@ -31,10 +31,10 @@ func TestMessageRoundTrip(t *testing.T) {
 }
 
 func TestAllowedFrom(t *testing.T) {
-	if !AllowedFrom(RoleApp, TypeTurnStart) || AllowedFrom(RoleApp, TypeTurnOutput) {
+	if !AllowedFrom(RoleApp, TypeExecutionProfileList) || !AllowedFrom(RoleApp, TypeProjectList) || !AllowedFrom(RoleApp, TypeThreadList) || !AllowedFrom(RoleApp, TypeThreadRead) || !AllowedFrom(RoleApp, TypeTurnStart) || !AllowedFrom(RoleApp, TypeTurnAcknowledged) || AllowedFrom(RoleApp, TypeTurnOutput) {
 		t.Fatal("unexpected App direction rules")
 	}
-	if !AllowedFrom(RoleAgent, TypeTurnOutput) || AllowedFrom(RoleAgent, TypeTurnStart) {
+	if !AllowedFrom(RoleAgent, TypeAgentCapabilities) || !AllowedFrom(RoleAgent, TypeExecutionProfileSnapshot) || !AllowedFrom(RoleAgent, TypeProjectSnapshot) || !AllowedFrom(RoleAgent, TypeThreadSnapshot) || !AllowedFrom(RoleAgent, TypeThreadDetail) || !AllowedFrom(RoleAgent, TypeTurnOutput) || !AllowedFrom(RoleAgent, TypeTurnItemStarted) || !AllowedFrom(RoleAgent, TypeTurnItemDelta) || !AllowedFrom(RoleAgent, TypeTurnItemDone) || AllowedFrom(RoleAgent, TypeTurnStart) {
 		t.Fatal("unexpected Agent direction rules")
 	}
 }

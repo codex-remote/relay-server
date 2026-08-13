@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	DefaultListenAddr      = ":8080"
+	DefaultListenAddr      = ":18765"
 	DefaultMaxMessageBytes = 256 * 1024
 	DefaultWriteQueueSize  = 128
 	DefaultPingInterval    = 20 * time.Second

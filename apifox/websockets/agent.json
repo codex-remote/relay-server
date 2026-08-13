@@ -1,15 +1,16 @@
 {
   "name": "Mac Agent 执行通道",
-  "path": "ws://127.0.0.1:8080/ws/agent",
+  "path": "/ws/agent",
   "moduleId": 8356476,
   "tags": [
     "Relay",
     "Mac Agent",
     "MVP v2"
   ],
-  "requestBody": {},
+  "requestBody": {
+    "parameters": []
+  },
   "parameters": {},
   "commonParameters": {},
-  "advancedSettings": {},
-  "description": "## 用途\n\nMac Agent 主动连接 Relay 的本地执行通道。正常调试应启动真实 `mac-agent serve`；Apifox 主要用于观察协议，只有测试 Relay 路由时才手动模拟 Agent。\n\n## Agent 可接收\n\n- `project.list`\n- `thread.list`\n- `turn.start`\n- `turn.interrupt`\n\n## Agent 可发送\n\n- `agent.hello`、`agent.status`\n- `project.snapshot`、`thread.snapshot`\n- `turn.started`、`turn.output`、`turn.snapshot`\n- `turn.completed`、`turn.failed`、`turn.interrupted`、`turn.rejected`\n\n## agent.hello 示例\n\n```json\n{\n  \"spec_version\": \"2.0\",\n  \"message_id\": \"77777777777747778777777777777777\",\n  \"type\": \"agent.hello\",\n  \"occurred_at\": \"2026-08-10T02:20:00Z\",\n  \"trace_id\": \"88888888888848888888888888888888\",\n  \"sender\": { \"kind\": \"device\", \"id\": \"apifox-agent\" },\n  \"payload\": {\n    \"name\": \"Apifox Agent\",\n    \"version\": \"test\",\n    \"status\": \"idle\"\n  }\n}\n```\n\n同角色只保留一个连接；用 Apifox 连接该端点会替换当前真实 Mac Agent。协议只接受 `2.0`。"
+  "advancedSettings": {}
 }

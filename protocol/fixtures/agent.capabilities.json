@@ -1,0 +1,23 @@
+{
+  "spec_version": "2.0",
+  "message_id": "11111111111141118111111111111111",
+  "type": "agent.capabilities",
+  "occurred_at": "2026-08-11T08:30:00Z",
+  "trace_id": "agent",
+  "sender": {
+    "kind": "device",
+    "id": "local-mac"
+  },
+  "payload": {
+    "restricted": true,
+    "sandbox_mode": "workspace-write",
+    "approval_policy": "never",
+    "writable_scope": "selected_project",
+    "network_access": false,
+    "can_request_approval": false,
+    "host_process_control": false,
+    "user_library_write": false,
+    "xcode_device_control": false,
+    "supports_permission_profiles": true
+  }
+}

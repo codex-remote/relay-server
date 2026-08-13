@@ -1,0 +1,60 @@
+{
+  "spec_version": "2.0",
+  "message_id": "99999999999949998999999999999999",
+  "type": "thread.detail",
+  "occurred_at": "2026-08-10T02:20:05Z",
+  "trace_id": "88888888888848888888888888888888",
+  "sender": { "kind": "device", "id": "local-mac" },
+  "payload": {
+    "project_id": "project_9e8638437f803c29d91a3844",
+    "thread": {
+      "id": "019fe7da-7105-7831-8c0c-8997786ddd3f",
+      "project_id": "project_9e8638437f803c29d91a3844",
+      "title": "修复登录问题",
+      "preview": "检查登录接口并运行测试",
+      "status": "notLoaded",
+      "source": "appServer",
+      "created_at": "2026-08-10T02:18:00Z",
+      "updated_at": "2026-08-10T02:20:00Z",
+      "turns": [
+        {
+          "id": "019fe7db-0100-7000-8000-000000000001",
+          "status": "completed",
+          "started_at": "2026-08-10T02:18:00Z",
+          "completed_at": "2026-08-10T02:20:00Z",
+          "duration_ms": 120000,
+          "items": [
+            {
+              "id": "item-user",
+              "type": "userMessage",
+              "role": "user",
+              "text": "检查登录接口并运行测试",
+              "truncated": false
+            },
+            {
+              "id": "item-command",
+              "type": "commandExecution",
+              "status": "completed",
+              "command": "go test ./...",
+              "cwd": "/Users/leehooo/work/example",
+              "output": "ok example/internal/login",
+              "exit_code": 0,
+              "duration_ms": 1432,
+              "truncated": false
+            },
+            {
+              "id": "item-agent",
+              "type": "agentMessage",
+              "role": "assistant",
+              "phase": "final_answer",
+              "text": "登录测试已通过。",
+              "truncated": false
+            }
+          ],
+          "truncated": false
+        }
+      ]
+    },
+    "truncated": false
+  }
+}

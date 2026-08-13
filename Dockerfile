@@ -13,6 +13,6 @@ RUN addgroup -S relay && adduser -S -G relay relay
 COPY --from=build /out/relay /usr/local/bin/relay
 
 USER relay
-EXPOSE 8080
-HEALTHCHECK --interval=20s --timeout=3s --retries=3 CMD wget -q -O - http://127.0.0.1:8080/healthz >/dev/null || exit 1
+EXPOSE 18765
+HEALTHCHECK --interval=20s --timeout=3s --retries=3 CMD wget -q -O - http://127.0.0.1:18765/healthz >/dev/null || exit 1
 ENTRYPOINT ["/usr/local/bin/relay"]

@@ -3,7 +3,7 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "18765:18765"
     environment:
-      RELAY_LISTEN_ADDR: ":8080"
+      RELAY_LISTEN_ADDR: ":18765"
       RELAY_LOG_LEVEL: "info"

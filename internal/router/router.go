@@ -60,6 +60,8 @@ func (r *Router) Handle(peer hub.Peer, message protocol.Message) {
 	message.Sender = protocol.CanonicalSender(peer.Role())
 	if peer.Role() == protocol.RoleAgent {
 		r.registry.RememberAgentState(message)
+	} else {
+		r.registry.RememberAppState(message)
 	}
 	targetRole := protocol.RoleAgent
 	if peer.Role() == protocol.RoleAgent {
@@ -68,6 +70,9 @@ func (r *Router) Handle(peer hub.Peer, message protocol.Message) {
 	target := r.registry.Peer(targetRole)
 	if target == nil {
 		if peer.Role() == protocol.RoleApp {
+			if message.Type == protocol.TypeTurnAcknowledged {
+				return
+			}
 			r.Reject(peer, message.TraceID, "AGENT_OFFLINE", "Mac Agent is not connected")
 		}
 		return

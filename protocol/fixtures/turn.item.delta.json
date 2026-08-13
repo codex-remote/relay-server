@@ -1,0 +1,17 @@
+{
+  "spec_version": "2.0",
+  "message_id": "22222222222242228222222222222222",
+  "type": "turn.item.delta",
+  "occurred_at": "2026-08-10T01:01:02Z",
+  "trace_id": "3cfad7be5e5e43f694db6f53ad52c918",
+  "sender": { "kind": "device", "id": "local-mac" },
+  "payload": {
+    "project_id": "project_9ee725d8a4b33e8da19d02d4",
+    "thread_id": "0198c3a0-ff21-7330-a910-62b85a688f70",
+    "turn_id": "0198c3a1-932f-7ca1-8ca6-29c07dd85aae",
+    "sequence": 2,
+    "item_id": "item-command",
+    "field": "output",
+    "delta": "ok example/internal/order\n"
+  }
+}

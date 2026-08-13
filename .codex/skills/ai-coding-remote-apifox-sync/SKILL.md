@@ -13,7 +13,9 @@ Run all commands from the `relay-server` repository root.
 2. Inspect the changed Go handler and `internal/protocol/message.go`. Keep Apifox descriptions Chinese-first and technical identifiers unchanged.
 3. Update the matching source definitions:
    - HTTP: `apifox/openapi.json`
-   - WebSocket: `apifox/websockets/app.json` and `apifox/websockets/agent.json`
+   - WebSocket metadata: `apifox/websockets/app.json` and `apifox/websockets/agent.json`
+   - WebSocket sent/received Body contracts: `apifox/websockets/docs/app.md` and `apifox/websockets/docs/agent.md`
+   - `/ws/app` default Message: `protocol/fixtures/project.list.json`
 4. Run local validation before any remote write:
 
    ```bash
@@ -32,6 +34,8 @@ Run all commands from the `relay-server` repository root.
    .codex/skills/ai-coding-remote-apifox-sync/scripts/sync.sh sync
    ```
 
+   For WebSocket-only changes, use `sync-websockets` so HTTP resources remain untouched.
+
 7. Re-run `check` and report HTTP paths, WebSocket paths, resource IDs, and any mismatch. Never report access tokens.
 
 ## Rules
@@ -43,8 +47,10 @@ Run all commands from the `relay-server` repository root.
 - Match existing WebSockets by exact `path`; update in place and never create duplicates.
 - Before an update, read the current resource with `apifox websocket get`.
 - OpenAPI describes only HTTP endpoints. Maintain WebSocket resources with `apifox websocket` commands.
+- Apifox WebSocket messages are free-form text frames and have no HTTP-style request/response schema editor. Keep both `发送 Body` and `接收 Body` contracts in the interface description; the sync script injects the matching Markdown file and verifies it after upload.
+- Keep `/ws/app` immediately runnable by publishing `protocol/fixtures/project.list.json` as its JSON default Message. Do not duplicate the Message body inside the WebSocket metadata file.
 - Keep the MVP unauthenticated in Apifox. Do not invent Bearer or device authentication before the code implements it.
-- Use `ws://127.0.0.1:8080` for Apifox desktop debugging. Connecting Apifox to `/ws/agent` replaces the real Mac Agent connection.
+- Store WebSocket resources as relative paths (`/ws/app` and `/ws/agent`) so Apifox applies the selected environment's pre-URL. Use the local or LAN Relay environment for desktop debugging. Connecting Apifox to `/ws/agent` replaces the real Mac Agent connection.
 - Do not delete remote resources unless the user explicitly requests deletion.
 - Do not print, copy, or commit Apifox tokens. CLI login state belongs in the user profile.
 

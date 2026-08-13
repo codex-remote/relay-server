@@ -1,0 +1,9 @@
+{
+  "spec_version": "2.0",
+  "message_id": "218f47f271a247cc88498b335d455175",
+  "type": "execution.profile.list",
+  "occurred_at": "2026-08-11T07:00:00Z",
+  "trace_id": "4cfad7be5e5e43f694db6f53ad52c918",
+  "sender": { "kind": "user", "id": "iphone" },
+  "payload": { "project_id": "project_9ee725d8a4b33e8da19d02d4" }
+}

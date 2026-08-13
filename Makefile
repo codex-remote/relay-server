@@ -1,4 +1,4 @@
-.PHONY: build test test-race vet e2e run apifox-validate apifox-check apifox-sync clean
+.PHONY: build test test-race vet e2e run apifox-validate apifox-check apifox-sync apifox-sync-websockets clean
 
 build:
 	go build -o bin/relay ./cmd/relay
@@ -27,6 +27,9 @@ apifox-check:
 
 apifox-sync:
 	.codex/skills/ai-coding-remote-apifox-sync/scripts/sync.sh sync
+
+apifox-sync-websockets:
+	.codex/skills/ai-coding-remote-apifox-sync/scripts/sync.sh sync-websockets
 
 clean:
 	go clean

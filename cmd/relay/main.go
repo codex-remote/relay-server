@@ -17,7 +17,7 @@ import (
 	"github.com/ai-coding-remote/relay-server/internal/server"
 )
 
-var version = "dev"
+var version = "0.0.1"
 
 func main() {
 	os.Exit(realMain(os.Args[1:]))

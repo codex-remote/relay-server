@@ -2,16 +2,16 @@
   "openapi": "3.1.0",
   "info": {
     "title": "AI Coding Remote Relay Server",
-    "version": "0.2.0",
+    "version": "0.0.1",
     "description": "单用户、多项目 MVP 的 Relay HTTP 调试接口。WebSocket 使用 spec_version 2.0 的 Project/Thread/Turn 协议，通过 Apifox 项目中的独立 WebSocket 接口调试。当前无应用层鉴权，只允许在可信局域网中使用。"
   },
   "servers": [
     {
-      "url": "http://127.0.0.1:8080",
+      "url": "http://127.0.0.1:18765",
       "description": "本机 Relay"
     },
     {
-      "url": "http://192.168.68.125:8080",
+      "url": "http://192.168.68.125:18765",
       "description": "当前局域网 Relay"
     }
   ],
@@ -67,7 +67,10 @@
                     "summary": "App 和 Mac Agent 均已连接",
                     "value": {
                       "app_connected": true,
-                      "agent_connected": true
+                      "agent_connected": true,
+                      "app_connection_id": 3,
+                      "last_turn_acknowledged": "019fe7db-0100-7000-8000-000000000001",
+                      "last_turn_acknowledged_status": "completed"
                     }
                   }
                 }
@@ -104,6 +107,20 @@
           "agent_connected": {
             "type": "boolean",
             "description": "是否存在活跃的 Mac Agent 连接。"
+          },
+          "app_connection_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "当前 App WebSocket 的进程内连接代次；未连接时省略。"
+          },
+          "last_turn_acknowledged": {
+            "type": "string",
+            "description": "App 最近确认已经应用终态的 Turn ID；Relay 重启前保留。"
+          },
+          "last_turn_acknowledged_status": {
+            "type": "string",
+            "enum": ["completed", "failed", "interrupted"],
+            "description": "最近终态确认对应的状态。"
           }
         }
       }

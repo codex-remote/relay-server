@@ -8,6 +8,7 @@
   "payload": {
     "project_id": "project_9ee725d8a4b33e8da19d02d4",
     "thread_id": "0198c3a0-ff21-7330-a910-62b85a688f70",
-    "prompt": "Fix the failing tests and explain the change."
+    "prompt": "Fix the failing tests and explain the change.",
+    "permission_profile_id": ":workspace"
   }
 }

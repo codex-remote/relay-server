@@ -1,15 +1,16 @@
 {
   "name": "iPhone App 控制通道",
-  "path": "ws://127.0.0.1:8080/ws/app",
+  "path": "/ws/app",
   "moduleId": 8356476,
   "tags": [
     "Relay",
     "App",
     "MVP v2"
   ],
-  "requestBody": {},
+  "requestBody": {
+    "parameters": []
+  },
   "parameters": {},
   "commonParameters": {},
-  "advancedSettings": {},
-  "description": "## 用途\n\n模拟 iPhone App 查询 Mac 上的 Git 项目和 Codex 会话，并在新会话或已有会话中启动 Turn。当前无鉴权，只能连接可信局域网 Relay。\n\n## App 可发送\n\n- `project.list`\n- `thread.list`\n- `turn.start`\n- `turn.interrupt`\n\n## App 可接收\n\n- `agent.hello`、`agent.status`\n- `project.snapshot`、`thread.snapshot`\n- `turn.started`、`turn.output`、`turn.snapshot`\n- `turn.completed`、`turn.failed`、`turn.interrupted`、`turn.rejected`\n\n## 第一步：查询项目\n\n```json\n{\n  \"spec_version\": \"2.0\",\n  \"message_id\": \"11111111111141118111111111111111\",\n  \"type\": \"project.list\",\n  \"occurred_at\": \"2026-08-10T02:20:00Z\",\n  \"trace_id\": \"22222222222242228222222222222222\",\n  \"sender\": { \"kind\": \"user\", \"id\": \"apifox\" },\n  \"payload\": {}\n}\n```\n\n从 `project.snapshot.payload.projects` 复制一个 `id`。\n\n## 第二步：查询会话\n\n```json\n{\n  \"spec_version\": \"2.0\",\n  \"message_id\": \"33333333333343338333333333333333\",\n  \"type\": \"thread.list\",\n  \"occurred_at\": \"2026-08-10T02:20:02Z\",\n  \"trace_id\": \"44444444444444448444444444444444\",\n  \"sender\": { \"kind\": \"user\", \"id\": \"apifox\" },\n  \"payload\": { \"project_id\": \"project_xxx\" }\n}\n```\n\n## 第三步：启动 Turn\n\n新会话省略 `thread_id`；继续会话时填入 `thread.snapshot` 返回的 ID。\n\n```json\n{\n  \"spec_version\": \"2.0\",\n  \"message_id\": \"55555555555545558555555555555555\",\n  \"type\": \"turn.start\",\n  \"occurred_at\": \"2026-08-10T02:20:05Z\",\n  \"trace_id\": \"66666666666646668666666666666666\",\n  \"sender\": { \"kind\": \"user\", \"id\": \"apifox\" },\n  \"payload\": {\n    \"project_id\": \"project_xxx\",\n    \"prompt\": \"检查当前修改并运行相关测试，不要提交代码\"\n  }\n}\n```\n\nRelay 会按连接端点覆盖 `sender`。协议只接受 `2.0`，不兼容 `1.0 run.*`。"
+  "advancedSettings": {}
 }
