@@ -36,6 +36,12 @@ const (
 	TypeTurnFailed               = "turn.failed"
 	TypeTurnRejected             = "turn.rejected"
 	TypeTurnAcknowledged         = "turn.acknowledged"
+	TypeRunAccepted              = "run.accepted"
+	TypeRuntimeReceivedAck       = "runtime.received_ack"
+	TypeRuntimeDurableAck        = "runtime.durable_ack"
+	TypeBootstrapStart           = "bootstrap.start"
+	TypeBootstrapBatch           = "bootstrap.batch"
+	TypeBootstrapDurableAck      = "bootstrap.durable_ack"
 )
 
 const (
@@ -49,13 +55,14 @@ type Sender struct {
 }
 
 type Message struct {
-	SpecVersion string          `json:"spec_version"`
-	MessageID   string          `json:"message_id"`
-	Type        string          `json:"type"`
-	OccurredAt  time.Time       `json:"occurred_at"`
-	TraceID     string          `json:"trace_id"`
-	Sender      Sender          `json:"sender"`
-	Payload     json.RawMessage `json:"payload"`
+	SpecVersion   string          `json:"spec_version"`
+	MessageID     string          `json:"message_id"`
+	Type          string          `json:"type"`
+	OccurredAt    time.Time       `json:"occurred_at"`
+	TraceID       string          `json:"trace_id"`
+	Sender        Sender          `json:"sender"`
+	Payload       json.RawMessage `json:"payload"`
+	AgentSequence int64           `json:"agent_sequence,omitempty"`
 }
 
 type AgentHelloPayload struct {
@@ -194,10 +201,44 @@ type ThreadFileChange struct {
 }
 
 type TurnStartPayload struct {
+	CommandID           string `json:"command_id"`
+	RunID               string `json:"run_id"`
 	ProjectID           string `json:"project_id"`
 	ThreadID            string `json:"thread_id,omitempty"`
 	Prompt              string `json:"prompt"`
 	PermissionProfileID string `json:"permission_profile_id,omitempty"`
+}
+
+type RunAcceptedPayload struct {
+	CommandID string `json:"command_id"`
+	RunID     string `json:"run_id"`
+}
+
+type RuntimeAckPayload struct {
+	RunID         string `json:"run_id"`
+	AgentSequence int64  `json:"agent_sequence"`
+}
+
+type BootstrapStartPayload struct {
+	CommandID string `json:"command_id"`
+	SyncID    string `json:"sync_id"`
+}
+
+type BootstrapBatchPayload struct {
+	CommandID  string        `json:"command_id"`
+	SyncID     string        `json:"sync_id"`
+	SnapshotID string        `json:"snapshot_id"`
+	BatchNo    int64         `json:"batch_no"`
+	Checksum   string        `json:"checksum"`
+	Project    *Project      `json:"project,omitempty"`
+	Thread     *ThreadDetail `json:"thread,omitempty"`
+	Done       bool          `json:"done"`
+}
+
+type BootstrapAckPayload struct {
+	SyncID   string `json:"sync_id"`
+	BatchNo  int64  `json:"batch_no"`
+	Checksum string `json:"checksum"`
 }
 
 type TurnStartedPayload struct {
@@ -362,12 +403,12 @@ func AllowedFrom(role, messageType string) bool {
 	switch role {
 	case RoleApp:
 		switch messageType {
-		case TypeExecutionProfileList, TypeProjectList, TypeThreadList, TypeThreadRead, TypeTurnStart, TypeTurnInterrupt, TypeTurnAcknowledged:
+		case TypeExecutionProfileList, TypeProjectList, TypeThreadList, TypeThreadRead, TypeTurnStart, TypeTurnInterrupt, TypeTurnAcknowledged, TypeRuntimeReceivedAck, TypeRuntimeDurableAck, TypeBootstrapStart, TypeBootstrapDurableAck:
 			return true
 		}
 	case RoleAgent:
 		switch messageType {
-		case TypeAgentHello, TypeAgentStatus, TypeAgentCapabilities, TypeExecutionProfileSnapshot, TypeProjectSnapshot, TypeThreadSnapshot, TypeThreadDetail,
+		case TypeAgentHello, TypeAgentStatus, TypeAgentCapabilities, TypeExecutionProfileSnapshot, TypeProjectSnapshot, TypeThreadSnapshot, TypeThreadDetail, TypeRunAccepted, TypeBootstrapBatch,
 			TypeTurnStarted, TypeTurnOutput, TypeTurnItemStarted, TypeTurnItemDelta, TypeTurnItemDone,
 			TypeTurnSnapshot, TypeTurnInterrupted,
 			TypeTurnCompleted, TypeTurnFailed, TypeTurnRejected:

@@ -60,7 +60,20 @@ if [[ "$project_id" != "8693796" || "$module_id" != "8356476" ]]; then
 fi
 
 validate_local() {
-	jq -e '.openapi == "3.1.0" and (.paths | has("/healthz")) and (.paths | has("/status"))' "$openapi_file" >/dev/null
+	jq -e '.openapi == "3.1.0"
+		and (.paths | has("/healthz"))
+		and (.paths | has("/status"))
+		and (.paths | has("/v1/runtime/healthz"))
+		and (.paths | has("/v1/runtime/projects"))
+		and (.paths | has("/v1/runtime/sessions"))
+		and (.paths | has("/v1/runtime/sessions/{session_id}"))
+		and (.paths | has("/v1/runtime/sessions/{session_id}/runs"))
+		and (.paths | has("/v1/runtime/runs/{run_id}"))
+		and (.paths | has("/v1/runtime/runs/{run_id}/cancel"))
+		and (.paths | has("/v1/runtime/sessions/{session_id}/events"))
+		and (.paths | has("/v1/runtime/runs/{run_id}/events"))
+		and (.paths | has("/v1/runtime/bootstrap-syncs"))
+		and (.paths | has("/v1/runtime/bootstrap-syncs/{sync_id}"))' "$openapi_file" >/dev/null
 	for definition in "$websocket_dir"/*.json; do
 		doc="$(websocket_doc_path "$definition")"
 		if [[ ! -s "$doc" ]]; then

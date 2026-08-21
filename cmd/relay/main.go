@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ai-coding-remote/relay-server/internal/config"
+	runtimecore "github.com/ai-coding-remote/relay-server/internal/runtime"
 	"github.com/ai-coding-remote/relay-server/internal/server"
 )
 
@@ -46,7 +47,22 @@ func realMain(arguments []string) int {
 		return 2
 	}
 	logger := newLogger(base.LogLevel)
-	relay := server.New(base, logger)
+	startupContext, startupCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	store, err := runtimecore.OpenPostgres(startupContext, base.DatabaseURL)
+	if err != nil {
+		startupCancel()
+		logger.Error("Open Runtime PostgreSQL", "error", err)
+		return 1
+	}
+	defer store.Close()
+	broker, err := runtimecore.OpenRedis(startupContext, base.RedisURL)
+	startupCancel()
+	if err != nil {
+		logger.Error("Open Runtime Redis", "error", err)
+		return 1
+	}
+	defer broker.Close()
+	relay := server.NewWithRuntime(base, logger, store, broker)
 	httpServer := &http.Server{
 		Addr:              base.ListenAddr,
 		Handler:           relay.Handler(),

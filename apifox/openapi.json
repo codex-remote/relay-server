@@ -1,129 +1,221 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "AI Coding Remote Relay Server",
-    "version": "0.0.1",
-    "description": "单用户、多项目 MVP 的 Relay HTTP 调试接口。WebSocket 使用 spec_version 2.0 的 Project/Thread/Turn 协议，通过 Apifox 项目中的独立 WebSocket 接口调试。当前无应用层鉴权，只允许在可信局域网中使用。"
+    "title": "Codex Remote Run Server",
+    "version": "1.0.0",
+    "description": "Mobile Web 当前使用的 Run Server HTTPS 与 SSE 契约。PostgreSQL 保存权威状态，Redis 仅保存活跃事件流和 Agent presence。当前开发环境未启用应用层鉴权。"
   },
   "servers": [
-    {
-      "url": "http://127.0.0.1:18765",
-      "description": "本机 Relay"
-    },
-    {
-      "url": "http://192.168.68.125:18765",
-      "description": "当前局域网 Relay"
-    }
+    { "url": "http://127.0.0.1:18765", "description": "本机 Run Server" }
   ],
   "tags": [
-    {
-      "name": "Relay 状态",
-      "description": "进程健康和 WebSocket 连接状态。"
-    }
+    { "name": "Relay 状态" },
+    { "name": "Runtime" },
+    { "name": "Runtime SSE" },
+    { "name": "Bootstrap" }
   ],
   "paths": {
     "/healthz": {
       "get": {
         "operationId": "getRelayHealth",
-        "summary": "检查 Relay 进程健康状态",
-        "description": "用于本地调试、Docker HEALTHCHECK 和部署平台存活探针。只表示 Relay 进程能够响应，不表示 App 或 Mac Agent 已连接。",
+        "summary": "Relay 进程存活检查",
         "tags": ["Relay 状态"],
-        "security": [],
-        "responses": {
-          "200": {
-            "description": "Relay 进程正常",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/HealthResponse" },
-                "example": { "status": "ok" }
-              }
-            }
-          }
-        }
+        "responses": { "200": { "description": "进程正常", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LegacyHealth" } } } } }
       }
     },
     "/status": {
       "get": {
-        "operationId": "getRelayConnectionStatus",
-        "summary": "查询 Relay 当前连接状态",
-        "description": "返回单 App、单 Mac Agent MVP 当前是否存在活跃 WebSocket 连接。结果只保存在进程内存中。",
+        "operationId": "getRelayStatus",
+        "summary": "Relay WebSocket 连接状态",
         "tags": ["Relay 状态"],
-        "security": [],
+        "responses": { "200": { "description": "连接状态", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } } }
+      }
+    },
+    "/v1/runtime/healthz": {
+      "get": {
+        "operationId": "getRuntimeHealth",
+        "summary": "检查 PostgreSQL 与 Redis",
+        "tags": ["Runtime"],
         "responses": {
-          "200": {
-            "description": "当前连接状态",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/ConnectionStatus" },
-                "examples": {
-                  "agentOnly": {
-                    "summary": "Mac Agent 已连接",
-                    "value": {
-                      "app_connected": false,
-                      "agent_connected": true
-                    }
-                  },
-                  "allConnected": {
-                    "summary": "App 和 Mac Agent 均已连接",
-                    "value": {
-                      "app_connected": true,
-                      "agent_connected": true,
-                      "app_connection_id": 3,
-                      "last_turn_acknowledged": "019fe7db-0100-7000-8000-000000000001",
-                      "last_turn_acknowledged_status": "completed"
-                    }
-                  }
-                }
-              }
-            }
-          }
+          "200": { "description": "依赖正常", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HealthEnvelope" } } } },
+          "503": { "$ref": "#/components/responses/ServiceUnavailable" }
+        }
+      }
+    },
+    "/v1/runtime/projects": {
+      "get": {
+        "operationId": "listRuntimeProjects",
+        "summary": "列出 Mac Agent 项目",
+        "tags": ["Runtime"],
+        "responses": { "200": { "description": "项目及 Agent 在线摘要", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectListEnvelope" } } } } }
+      }
+    },
+    "/v1/runtime/sessions": {
+      "get": {
+        "operationId": "listRuntimeSessions",
+        "summary": "列出会话",
+        "tags": ["Runtime"],
+        "parameters": [
+          { "name": "project_id", "in": "query", "required": false, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "会话列表", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SessionListEnvelope" } } } } }
+      },
+      "post": {
+        "operationId": "createRuntimeSession",
+        "summary": "创建会话",
+        "tags": ["Runtime"],
+        "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateSessionRequest" } } } },
+        "responses": {
+          "201": { "description": "新建成功", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SessionEnvelope" } } } },
+          "409": { "$ref": "#/components/responses/Conflict" }
+        }
+      }
+    },
+    "/v1/runtime/sessions/{session_id}": {
+      "get": {
+        "operationId": "getRuntimeSession",
+        "summary": "读取会话快照",
+        "tags": ["Runtime"],
+        "parameters": [{ "$ref": "#/components/parameters/SessionId" }],
+        "responses": {
+          "200": { "description": "会话、Run 列表和 Session 水位", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SessionSnapshotEnvelope" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/v1/runtime/sessions/{session_id}/runs": {
+      "get": {
+        "operationId": "listSessionRuns",
+        "summary": "列出会话 Run",
+        "tags": ["Runtime"],
+        "parameters": [{ "$ref": "#/components/parameters/SessionId" }],
+        "responses": { "200": { "description": "Run 列表", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RunListEnvelope" } } } } }
+      },
+      "post": {
+        "operationId": "createSessionRun",
+        "summary": "提交 Run",
+        "description": "Run、session event 和 run.start command outbox 在同一 PostgreSQL 事务提交后返回 202。",
+        "tags": ["Runtime"],
+        "parameters": [{ "$ref": "#/components/parameters/SessionId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateRunRequest" } } } },
+        "responses": {
+          "202": { "description": "已持久接受", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateRunEnvelope" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" }
+        }
+      }
+    },
+    "/v1/runtime/runs/{run_id}": {
+      "get": {
+        "operationId": "getRuntimeRun",
+        "summary": "读取 Run 与持久事件快照",
+        "tags": ["Runtime"],
+        "parameters": [{ "$ref": "#/components/parameters/RunId" }],
+        "responses": {
+          "200": { "description": "Run 快照", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RunEnvelope" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/v1/runtime/runs/{run_id}/cancel": {
+      "post": {
+        "operationId": "cancelRuntimeRun",
+        "summary": "持久化取消意图",
+        "tags": ["Runtime"],
+        "parameters": [{ "$ref": "#/components/parameters/RunId" }],
+        "responses": {
+          "202": { "description": "取消意图已写入", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CancelRunEnvelope" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/v1/runtime/sessions/{session_id}/events": {
+      "get": {
+        "operationId": "streamSessionEvents",
+        "summary": "订阅 Session SSE",
+        "description": "使用 session_sequence 作为 SSE id。发送 run.created、run.status.changed 和 run.completed。15 秒无业务消息时发送注释心跳。",
+        "tags": ["Runtime SSE"],
+        "parameters": [
+          { "$ref": "#/components/parameters/SessionId" },
+          { "$ref": "#/components/parameters/After" },
+          { "$ref": "#/components/parameters/LastEventId" }
+        ],
+        "responses": { "200": { "description": "Session 事件流", "content": { "text/event-stream": { "schema": { "type": "string" }, "example": "id: 1\nevent: run.created\ndata: {\"schema_version\":1,\"session_id\":\"session_01\",\"run_id\":\"run_01\",\"status\":\"queued\"}\n\n" } } } }
+      }
+    },
+    "/v1/runtime/runs/{run_id}/events": {
+      "get": {
+        "operationId": "streamRunEvents",
+        "summary": "订阅 Run SSE",
+        "description": "按 agent_sequence 合并 PostgreSQL 持久事件与 Redis 活跃事件；SSE id 等于 agent_sequence。",
+        "tags": ["Runtime SSE"],
+        "parameters": [
+          { "$ref": "#/components/parameters/RunId" },
+          { "$ref": "#/components/parameters/After" },
+          { "$ref": "#/components/parameters/LastEventId" }
+        ],
+        "responses": { "200": { "description": "Run 事件流", "content": { "text/event-stream": { "schema": { "type": "string" }, "example": "id: 3\nevent: assistant.delta\ndata: {\"id\":\"3\",\"run_id\":\"run_01\",\"type\":\"assistant.delta\",\"delta\":\"hello\"}\n\n" } } } }
+      }
+    },
+    "/v1/runtime/bootstrap-syncs": {
+      "post": {
+        "operationId": "createBootstrapSync",
+        "summary": "触发 Mac Agent 初始化同步",
+        "description": "同一时间只允许一个 queued/running Job；页面关闭不会取消任务。",
+        "tags": ["Bootstrap"],
+        "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false } } } },
+        "responses": { "202": { "description": "同步任务已接受", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SyncEnvelope" } } } } }
+      }
+    },
+    "/v1/runtime/bootstrap-syncs/{sync_id}": {
+      "get": {
+        "operationId": "getBootstrapSync",
+        "summary": "读取初始化进度",
+        "tags": ["Bootstrap"],
+        "parameters": [{ "name": "sync_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "同步任务", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SyncEnvelope" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
         }
       }
     }
   },
   "components": {
+    "parameters": {
+      "SessionId": { "name": "session_id", "in": "path", "required": true, "schema": { "type": "string" } },
+      "RunId": { "name": "run_id", "in": "path", "required": true, "schema": { "type": "string" } },
+      "IdempotencyKey": { "name": "Idempotency-Key", "in": "header", "required": true, "schema": { "type": "string", "minLength": 1 } },
+      "After": { "name": "after", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 0, "default": 0 } },
+      "LastEventId": { "name": "Last-Event-ID", "in": "header", "required": false, "schema": { "type": "integer", "minimum": 0 } }
+    },
+    "responses": {
+      "NotFound": { "description": "资源不存在", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },
+      "Conflict": { "description": "幂等键冲突", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },
+      "ServiceUnavailable": { "description": "Runtime 依赖不可用", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } }
+    },
     "schemas": {
-      "HealthResponse": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["status"],
-        "properties": {
-          "status": {
-            "type": "string",
-            "const": "ok",
-            "description": "Relay 进程健康标记。"
-          }
-        }
-      },
-      "ConnectionStatus": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["app_connected", "agent_connected"],
-        "properties": {
-          "app_connected": {
-            "type": "boolean",
-            "description": "是否存在活跃的 iPhone App 或 relayctl 连接。"
-          },
-          "agent_connected": {
-            "type": "boolean",
-            "description": "是否存在活跃的 Mac Agent 连接。"
-          },
-          "app_connection_id": {
-            "type": "integer",
-            "minimum": 1,
-            "description": "当前 App WebSocket 的进程内连接代次；未连接时省略。"
-          },
-          "last_turn_acknowledged": {
-            "type": "string",
-            "description": "App 最近确认已经应用终态的 Turn ID；Relay 重启前保留。"
-          },
-          "last_turn_acknowledged_status": {
-            "type": "string",
-            "enum": ["completed", "failed", "interrupted"],
-            "description": "最近终态确认对应的状态。"
-          }
-        }
-      }
+      "LegacyHealth": { "type": "object", "required": ["status"], "properties": { "status": { "type": "string", "const": "ok" } } },
+      "Meta": { "type": "object", "required": ["schema_version"], "properties": { "schema_version": { "type": "integer", "const": 1 } } },
+      "HealthEnvelope": { "type": "object", "required": ["success", "data", "meta"], "properties": { "success": { "const": true }, "data": { "type": "object", "required": ["status"], "properties": { "status": { "const": "ok" } } }, "meta": { "$ref": "#/components/schemas/Meta" } } },
+      "ErrorEnvelope": { "type": "object", "required": ["success", "error", "meta"], "properties": { "success": { "const": false }, "error": { "type": "object", "required": ["code", "message", "retryable"], "properties": { "code": { "type": "string" }, "message": { "type": "string" }, "retryable": { "type": "boolean" } } }, "meta": { "$ref": "#/components/schemas/Meta" } } },
+      "Project": { "type": "object", "required": ["project_id", "display_name"], "properties": { "project_id": { "type": "string" }, "display_name": { "type": "string" } } },
+      "Session": { "type": "object", "required": ["session_id", "project_id", "title", "last_session_sequence", "created_at", "updated_at"], "properties": { "session_id": { "type": "string" }, "project_id": { "type": "string" }, "codex_thread_id": { "type": "string" }, "title": { "type": "string" }, "last_session_sequence": { "type": "integer", "minimum": 0 }, "created_at": { "type": "string", "format": "date-time" }, "updated_at": { "type": "string", "format": "date-time" } } },
+      "RunEvent": { "type": "object", "required": ["agent_sequence", "type", "payload", "occurred_at"], "properties": { "agent_sequence": { "type": "integer", "minimum": 1 }, "type": { "type": "string" }, "payload": { "type": "object", "additionalProperties": true }, "occurred_at": { "type": "string", "format": "date-time" } } },
+      "Run": { "type": "object", "required": ["run_id", "session_id", "status", "state_version", "persisted_through_sequence", "created_at", "updated_at"], "properties": { "run_id": { "type": "string" }, "session_id": { "type": "string" }, "codex_turn_id": { "type": "string" }, "status": { "type": "string", "enum": ["queued", "dispatching", "accepted", "running", "waiting_agent", "recovering", "finalizing", "completed", "failed", "canceled"] }, "state_version": { "type": "integer", "minimum": 1 }, "prompt": { "type": "string" }, "cancel_requested_at": { "type": "string", "format": "date-time" }, "persisted_through_sequence": { "type": "integer", "minimum": 0 }, "final_sequence": { "type": "integer", "minimum": 1 }, "error_code": { "type": "string" }, "error_message": { "type": "string" }, "created_at": { "type": "string", "format": "date-time" }, "started_at": { "type": "string", "format": "date-time" }, "finished_at": { "type": "string", "format": "date-time" }, "updated_at": { "type": "string", "format": "date-time" }, "events": { "type": "array", "items": { "$ref": "#/components/schemas/RunEvent" } } } },
+      "SyncJob": { "type": "object", "required": ["sync_id", "status", "last_committed_batch_no", "item_count", "created_at", "updated_at"], "properties": { "sync_id": { "type": "string" }, "status": { "type": "string", "enum": ["queued", "running", "completed", "failed"] }, "snapshot_id": { "type": "string" }, "last_committed_batch_no": { "type": "integer", "minimum": -1 }, "item_count": { "type": "integer", "minimum": 0 }, "error_code": { "type": "string" }, "error_message": { "type": "string" }, "created_at": { "type": "string", "format": "date-time" }, "updated_at": { "type": "string", "format": "date-time" } } },
+      "CreateSessionRequest": { "type": "object", "additionalProperties": false, "required": ["project_id", "title"], "properties": { "project_id": { "type": "string" }, "title": { "type": "string" } } },
+      "CreateRunRequest": { "type": "object", "additionalProperties": false, "required": ["prompt"], "properties": { "prompt": { "type": "string", "minLength": 1 } } },
+      "ProjectListEnvelope": { "type": "object", "required": ["success", "data", "meta"], "properties": { "success": { "const": true }, "data": { "type": "object", "required": ["items", "agent_presence"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Project" } }, "next_cursor": { "type": ["string", "null"] }, "agent_presence": { "type": "string", "enum": ["online", "offline"] }, "agent_last_seen_at": { "type": ["string", "null"], "format": "date-time" } } }, "meta": { "$ref": "#/components/schemas/Meta" } } },
+      "SessionEnvelope": { "type": "object", "required": ["success", "data", "meta"], "properties": { "success": { "const": true }, "data": { "$ref": "#/components/schemas/Session" }, "meta": { "$ref": "#/components/schemas/Meta" } } },
+      "SessionListEnvelope": { "type": "object", "required": ["success", "data", "meta"], "properties": { "success": { "const": true }, "data": { "type": "object", "required": ["items"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Session" } }, "next_cursor": { "type": ["string", "null"] } } }, "meta": { "$ref": "#/components/schemas/Meta" } } },
+      "RunListEnvelope": { "type": "object", "required": ["success", "data", "meta"], "properties": { "success": { "const": true }, "data": { "type": "object", "required": ["items"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Run" } }, "next_cursor": { "type": ["string", "null"] } } }, "meta": { "$ref": "#/components/schemas/Meta" } } },
+      "RunEnvelope": { "type": "object", "required": ["success", "data", "meta"], "properties": { "success": { "const": true }, "data": { "$ref": "#/components/schemas/Run" }, "meta": { "$ref": "#/components/schemas/Meta" } } },
+      "SessionSnapshotEnvelope": { "type": "object", "required": ["success", "data", "meta"], "properties": { "success": { "const": true }, "data": { "type": "object", "required": ["session", "runs", "snapshot_session_sequence", "agent_presence"], "properties": { "session": { "$ref": "#/components/schemas/Session" }, "runs": { "type": "array", "items": { "$ref": "#/components/schemas/Run" } }, "snapshot_session_sequence": { "type": "integer", "minimum": 0 }, "agent_presence": { "type": "string", "enum": ["online", "offline"] }, "agent_last_seen_at": { "type": ["string", "null"], "format": "date-time" } } }, "meta": { "$ref": "#/components/schemas/Meta" } } },
+      "CreateRunEnvelope": { "type": "object", "required": ["success", "data", "meta"], "properties": { "success": { "const": true }, "data": { "type": "object", "required": ["run_id", "session_id", "status", "session_sequence", "created_at"], "properties": { "run_id": { "type": "string" }, "session_id": { "type": "string" }, "status": { "const": "queued" }, "session_sequence": { "type": "integer", "minimum": 0 }, "created_at": { "type": "string", "format": "date-time" } } }, "meta": { "$ref": "#/components/schemas/Meta" } } },
+      "CancelRunEnvelope": { "type": "object", "required": ["success", "data", "meta"], "properties": { "success": { "const": true }, "data": { "type": "object", "required": ["run_id", "cancel_requested", "status"], "properties": { "run_id": { "type": "string" }, "cancel_requested": { "type": "boolean" }, "status": { "type": "string" } } }, "meta": { "$ref": "#/components/schemas/Meta" } } },
+      "SyncEnvelope": { "type": "object", "required": ["success", "data", "meta"], "properties": { "success": { "const": true }, "data": { "$ref": "#/components/schemas/SyncJob" }, "meta": { "$ref": "#/components/schemas/Meta" } } }
     }
   }
 }

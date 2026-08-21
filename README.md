@@ -209,6 +209,11 @@ docker run --rm -p 18765:18765 ai-coding-remote-relay
 | `RELAY_PING_INTERVAL` | `20s` | Ping 周期 |
 | `RELAY_SHUTDOWN_TIMEOUT` | `10s` | 优雅停机等待 |
 | `RELAY_LOG_LEVEL` | `info` | 日志级别 |
+| `RUNTIME_DATABASE_URL` | 本机开发 PostgreSQL | Runtime PostgreSQL 连接串 |
+| `RUNTIME_REDIS_URL` | 本机开发 Redis | Runtime Redis 连接串 |
+| `RUNTIME_ALLOWED_ORIGIN` | `http://127.0.0.1:4173` | 逗号分隔的 CORS allowlist；本地开发可显式设为 `*` |
+
+本地开发的 `.env.example` 和 `compose.yaml` 使用 `RUNTIME_ALLOWED_ORIGIN=*`，因此 Mac 局域网 IP 变化后不需要更新 CORS。`*` 不允许凭证式 Cookie 跨域，也不得用于公网或生产环境；阶段 7 必须恢复为明确的 HTTPS Origin allowlist。
 
 ## 结构与演进
 

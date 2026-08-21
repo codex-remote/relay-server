@@ -7,3 +7,46 @@ services:
     environment:
       RELAY_LISTEN_ADDR: ":18765"
       RELAY_LOG_LEVEL: "info"
+      RUNTIME_DATABASE_URL: "postgres://codexremote:codexremote@postgres:5432/codexremote?sslmode=disable"
+      RUNTIME_REDIS_URL: "redis://default:codexremote@redis:6379/0"
+      RUNTIME_ALLOWED_ORIGIN: "*"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    ports:
+      - "54329:5432"
+    environment:
+      POSTGRES_DB: codexremote
+      POSTGRES_USER: codexremote
+      POSTGRES_PASSWORD: codexremote
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U codexremote -d codexremote"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+    volumes:
+      - runtime-postgres:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "codexremote", "--appendonly", "yes"]
+    ports:
+      - "63799:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "codexremote", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+    volumes:
+      - runtime-redis:/data
+
+volumes:
+  runtime-postgres:
+  runtime-redis:

@@ -23,6 +23,9 @@ type Config struct {
 	PingInterval    time.Duration
 	ShutdownTimeout time.Duration
 	LogLevel        string
+	DatabaseURL     string
+	RedisURL        string
+	AllowedOrigin   string
 }
 
 func FromEnv() (Config, error) {
@@ -33,6 +36,9 @@ func FromEnv() (Config, error) {
 		PingInterval:    DefaultPingInterval,
 		ShutdownTimeout: DefaultShutdownTimeout,
 		LogLevel:        envOrDefault("RELAY_LOG_LEVEL", "info"),
+		DatabaseURL:     envOrDefault("RUNTIME_DATABASE_URL", "postgres://codexremote:codexremote@127.0.0.1:54329/codexremote?sslmode=disable"),
+		RedisURL:        envOrDefault("RUNTIME_REDIS_URL", "redis://default:codexremote@127.0.0.1:63799/0"),
+		AllowedOrigin:   envOrDefault("RUNTIME_ALLOWED_ORIGIN", "http://127.0.0.1:4173"),
 	}
 	var err error
 	if config.MaxMessageBytes, err = int64Env("RELAY_MAX_MESSAGE_BYTES", config.MaxMessageBytes); err != nil {

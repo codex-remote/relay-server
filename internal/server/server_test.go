@@ -40,6 +40,43 @@ func TestHealthAndStatus(t *testing.T) {
 	}
 }
 
+func TestCORSUsesExplicitOriginAllowlist(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	relay := New(config.Config{MaxMessageBytes: 256 * 1024, WriteQueueSize: 16, PingInterval: time.Second, AllowedOrigin: "http://127.0.0.1:4173, http://192.168.0.108:4173"}, logger)
+	t.Cleanup(func() { relay.CloseConnections("test complete") })
+
+	for _, test := range []struct {
+		origin string
+		want   string
+	}{{"http://127.0.0.1:4173", "http://127.0.0.1:4173"}, {"http://192.168.0.108:4173", "http://192.168.0.108:4173"}, {"https://untrusted.example", ""}} {
+		request := httptest.NewRequest(http.MethodOptions, "/v1/runtime/projects", nil)
+		request.Header.Set("Origin", test.origin)
+		response := httptest.NewRecorder()
+		relay.Handler().ServeHTTP(response, request)
+		if got := response.Header().Get("Access-Control-Allow-Origin"); got != test.want {
+			t.Errorf("origin %s: Access-Control-Allow-Origin = %q, want %q", test.origin, got, test.want)
+		}
+	}
+}
+
+func TestCORSAllowsAnyOriginWhenExplicitlyConfigured(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	relay := New(config.Config{MaxMessageBytes: 256 * 1024, WriteQueueSize: 16, PingInterval: time.Second, AllowedOrigin: "*"}, logger)
+	t.Cleanup(func() { relay.CloseConnections("test complete") })
+
+	request := httptest.NewRequest(http.MethodOptions, "/v1/runtime/projects", nil)
+	request.Header.Set("Origin", "http://192.168.1.7:4174")
+	response := httptest.NewRecorder()
+	relay.Handler().ServeHTTP(response, request)
+
+	if got := response.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Fatalf("Access-Control-Allow-Origin = %q, want *", got)
+	}
+	if got := response.Header().Get("Access-Control-Allow-Credentials"); got != "" {
+		t.Fatalf("Access-Control-Allow-Credentials = %q, want empty", got)
+	}
+}
+
 func TestWebSocketRoutesMessagesBothDirections(t *testing.T) {
 	_, baseURL := testServer(t)
 	ctx := context.Background()

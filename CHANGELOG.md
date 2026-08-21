@@ -10,6 +10,21 @@ AI Coding Remote Relay Server 的重要变更记录在此文件中。
 
 ## [Unreleased]
 
+### Added
+
+- Added PostgreSQL Runtime Core with seven minimal tables, transactional Run creation and command outbox dispatch.
+- Added Redis active Run streams, Session notifications, renewable Agent presence and Runtime HTTPS/SSE endpoints.
+- Added Agent event receipt/durable ACK handling, Bootstrap batch persistence and mobile-web OpenAPI/Apifox contracts.
+- Added explicit `RUNTIME_ALLOWED_ORIGIN=*` support for local and LAN development without per-IP CORS updates.
+
+### Fixed
+
+- Made concurrent idempotent Session/Run creation return one resource without unique-key races.
+- Prevented replayed Agent events from advancing Run state or creating duplicate Session events.
+- Return empty JSON arrays instead of `null` for empty Runtime collections.
+- Bootstrap imports now resolve existing Codex Thread and Turn identifiers to their canonical Runtime Session and Run before persisting events, avoiding foreign-key failures during incremental history sync.
+- Bootstrap completion now finalizes its outbox command in the same transaction, and terminal sync commands are discarded before dispatch so interrupted Relay shutdowns cannot replay completed history imports.
+
 ## [0.0.1] - 2026-08-13
 
 ### Added

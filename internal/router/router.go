@@ -10,6 +10,13 @@ import (
 type Router struct {
 	registry *hub.Registry
 	logger   *slog.Logger
+	observer Observer
+}
+
+type Observer interface {
+	AgentConnected(hub.Peer)
+	AgentDisconnected(hub.Peer)
+	AgentMessage(hub.Peer, protocol.Message) bool
 }
 
 func New(registry *hub.Registry, logger *slog.Logger) *Router {
@@ -19,12 +26,17 @@ func New(registry *hub.Registry, logger *slog.Logger) *Router {
 	return &Router{registry: registry, logger: logger}
 }
 
+func (r *Router) SetObserver(observer Observer) { r.observer = observer }
+
 func (r *Router) Connect(peer hub.Peer) {
 	old := r.registry.Replace(peer)
 	if old != nil {
 		old.Close("replaced by a newer connection")
 	}
 	r.logger.Info("WebSocket connected", "role", peer.Role(), "connection_id", peer.ID())
+	if peer.Role() == protocol.RoleAgent && r.observer != nil {
+		r.observer.AgentConnected(peer)
+	}
 	if peer.Role() != protocol.RoleApp {
 		return
 	}
@@ -46,6 +58,9 @@ func (r *Router) Disconnect(peer hub.Peer) {
 	}
 	r.logger.Info("WebSocket disconnected", "role", peer.Role(), "connection_id", peer.ID())
 	if peer.Role() == protocol.RoleAgent {
+		if r.observer != nil {
+			r.observer.AgentDisconnected(peer)
+		}
 		if app := r.registry.Peer(protocol.RoleApp); app != nil {
 			r.sendAgentOffline(app, "agent")
 		}
@@ -58,6 +73,9 @@ func (r *Router) Handle(peer hub.Peer, message protocol.Message) {
 		return
 	}
 	message.Sender = protocol.CanonicalSender(peer.Role())
+	if peer.Role() == protocol.RoleAgent && r.observer != nil && r.observer.AgentMessage(peer, message) {
+		return
+	}
 	if peer.Role() == protocol.RoleAgent {
 		r.registry.RememberAgentState(message)
 	} else {
