@@ -40,6 +40,7 @@ func TestRuntimePostgresRedisAgentFlow(t *testing.T) {
 	}
 	defer broker.Close()
 	projectID := "project_" + protocol.NewID()
+	cleanupProjectFixture(t, projectID)
 	threadID := "thread_" + protocol.NewID()
 	turnID := "turn_" + protocol.NewID()
 	importedThreadID := "thread_" + protocol.NewID()
@@ -94,6 +95,7 @@ func TestRuntimePostgresRedisAgentFlow(t *testing.T) {
 
 	syncResponse := post(t, httpServer.URL+"/v1/runtime/bootstrap-syncs", "sync-key-"+protocol.NewID(), map[string]any{})
 	syncID := nestedString(syncResponse, "data", "sync_id")
+	cleanupSyncFixture(t, syncID)
 	bootstrapStart := readUntil(t, agent, protocol.TypeBootstrapStart)
 	bootstrapCommand, _ := protocol.PayloadAs[protocol.BootstrapStartPayload](bootstrapStart)
 	now := time.Now().UTC()
@@ -144,6 +146,7 @@ func TestCreateRunConcurrentIdempotency(t *testing.T) {
 	}
 	defer store.Close()
 	projectID := "project_" + protocol.NewID()
+	cleanupProjectFixture(t, projectID)
 	if err := store.UpsertProjects(ctx, []runtimecore.Project{{ID: projectID, DisplayName: "Concurrent"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -179,6 +182,7 @@ func TestCreateRunConcurrentIdempotency(t *testing.T) {
 	for id := range ids {
 		if expected == "" {
 			expected = id
+			cleanupSyncFixture(t, expected)
 		}
 		if id != expected {
 			t.Fatalf("idempotent requests returned different runs: %s and %s", expected, id)
@@ -285,6 +289,7 @@ func TestCompletedBootstrapCommandRecoveredWithoutRedispatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	cleanupSyncFixture(t, job.ID)
 	if _, err := store.ApplyBootstrapBatch(ctx, runtimecore.BootstrapBatch{SyncID: job.ID, SnapshotID: "legacy-test", BatchNo: 0, Checksum: "done", Done: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -381,4 +386,72 @@ func writeProtocol(t *testing.T, connection *websocket.Conn, message protocol.Me
 	if err := connection.Write(context.Background(), websocket.MessageText, data); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func cleanupProjectFixture(t *testing.T, projectID string) {
+	t.Helper()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		database, err := pgx.Connect(ctx, runtimeTestPostgresURL)
+		if err != nil {
+			t.Errorf("connect for project fixture cleanup: %v", err)
+			return
+		}
+		defer database.Close(ctx)
+		tx, err := database.Begin(ctx)
+		if err != nil {
+			t.Errorf("begin project fixture cleanup: %v", err)
+			return
+		}
+		defer tx.Rollback(ctx)
+		statements := []string{
+			`DELETE FROM runtime.command_outbox WHERE resource_id IN (SELECT r.run_id FROM runtime.runs r JOIN runtime.sessions s ON s.session_id=r.session_id WHERE s.project_id=$1)`,
+			`DELETE FROM runtime.run_events WHERE run_id IN (SELECT r.run_id FROM runtime.runs r JOIN runtime.sessions s ON s.session_id=r.session_id WHERE s.project_id=$1)`,
+			`DELETE FROM runtime.session_events WHERE session_id IN (SELECT session_id FROM runtime.sessions WHERE project_id=$1)`,
+			`DELETE FROM runtime.runs WHERE session_id IN (SELECT session_id FROM runtime.sessions WHERE project_id=$1)`,
+			`DELETE FROM runtime.sessions WHERE project_id=$1`,
+			`DELETE FROM runtime.projects WHERE project_id=$1`,
+		}
+		for _, statement := range statements {
+			if _, err := tx.Exec(ctx, statement, projectID); err != nil {
+				t.Errorf("clean project fixture %s: %v", projectID, err)
+				return
+			}
+		}
+		if err := tx.Commit(ctx); err != nil {
+			t.Errorf("commit project fixture cleanup %s: %v", projectID, err)
+		}
+	})
+}
+
+func cleanupSyncFixture(t *testing.T, syncID string) {
+	t.Helper()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		database, err := pgx.Connect(ctx, runtimeTestPostgresURL)
+		if err != nil {
+			t.Errorf("connect for sync fixture cleanup: %v", err)
+			return
+		}
+		defer database.Close(ctx)
+		tx, err := database.Begin(ctx)
+		if err != nil {
+			t.Errorf("begin sync fixture cleanup: %v", err)
+			return
+		}
+		defer tx.Rollback(ctx)
+		if _, err := tx.Exec(ctx, `DELETE FROM runtime.command_outbox WHERE command_type='bootstrap.start' AND resource_id=$1`, syncID); err != nil {
+			t.Errorf("clean sync command fixture %s: %v", syncID, err)
+			return
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM runtime.sync_jobs WHERE sync_id=$1`, syncID); err != nil {
+			t.Errorf("clean sync fixture %s: %v", syncID, err)
+			return
+		}
+		if err := tx.Commit(ctx); err != nil {
+			t.Errorf("commit sync fixture cleanup %s: %v", syncID, err)
+		}
+	})
 }
