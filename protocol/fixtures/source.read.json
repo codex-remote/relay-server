@@ -1,0 +1,14 @@
+{
+  "spec_version": "2.0",
+  "message_id": "019fe7db-0100-7000-8000-000000000030",
+  "type": "source.read",
+  "occurred_at": "2026-08-22T09:00:00Z",
+  "trace_id": "source-request-1",
+  "sender": { "kind": "relay", "id": "run-server" },
+  "payload": {
+    "project_id": "project_mobile_web",
+    "path": "src/components/ConversationView.tsx",
+    "focus_line": 199,
+    "context_lines": 200
+  }
+}

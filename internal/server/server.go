@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/ai-coding-remote/relay-server/internal/auth"
 	"github.com/ai-coding-remote/relay-server/internal/config"
 	"github.com/ai-coding-remote/relay-server/internal/hub"
 	"github.com/ai-coding-remote/relay-server/internal/protocol"
@@ -18,17 +19,28 @@ type Server struct {
 	registry    *hub.Registry
 	handler     http.Handler
 	coordinator *runtimecore.Coordinator
+	control     http.Handler
+}
+
+type RuntimeAuthModule interface {
+	RegisterPublic(*http.ServeMux)
+	Protect(http.Handler, func(*http.Request) string) http.Handler
+	ControlHandler() http.Handler
 }
 
 func New(config config.Config, logger *slog.Logger) *Server {
-	return newServer(config, logger, nil, nil)
+	return newServer(config, logger, nil, nil, nil)
 }
 
 func NewWithRuntime(config config.Config, logger *slog.Logger, store runtimecore.Store, broker runtimecore.Broker) *Server {
-	return newServer(config, logger, store, broker)
+	return newServer(config, logger, store, broker, nil)
 }
 
-func newServer(config config.Config, logger *slog.Logger, store runtimecore.Store, broker runtimecore.Broker) *Server {
+func NewWithRuntimeAndAuth(config config.Config, logger *slog.Logger, store runtimecore.Store, broker runtimecore.Broker, authModule RuntimeAuthModule) *Server {
+	return newServer(config, logger, store, broker, authModule)
+}
+
+func newServer(config config.Config, logger *slog.Logger, store runtimecore.Store, broker runtimecore.Broker, authModule RuntimeAuthModule) *Server {
 	registry := hub.NewRegistry()
 	messageRouter := router.New(registry, logger)
 	websocketHandler := websockettransport.NewHandler(websockettransport.Config{
@@ -43,13 +55,35 @@ func newServer(config config.Config, logger *slog.Logger, store runtimecore.Stor
 	mux.HandleFunc("/ws/app", websocketHandler.ServeRole(protocol.RoleApp))
 	mux.HandleFunc("/ws/agent", websocketHandler.ServeRole(protocol.RoleAgent))
 	if store != nil && broker != nil {
-		runtimecore.NewAPI(store, broker).Register(mux)
-		server.coordinator = runtimecore.NewCoordinator(store, broker, registry, logger)
+		sourceGateway := runtimecore.NewSourceGateway(registry)
+		runtimeMux := http.NewServeMux()
+		// Runtime auth is centralized here. Individual Runtime handlers receive an authenticated Principal.
+		runtimecore.NewAPIWithSource(store, broker, sourceGateway).Register(runtimeMux)
+		var runtimeHandler http.Handler = runtimeMux
+		if authModule != nil {
+			runtimeHandler = authModule.Protect(runtimeHandler, runtimeRequiredScope)
+			authModule.RegisterPublic(mux)
+			server.control = authModule.ControlHandler()
+		}
+		mux.Handle("/v1/runtime/", runtimeHandler)
+		server.coordinator = runtimecore.NewCoordinatorWithSource(store, broker, registry, logger, sourceGateway)
 		messageRouter.SetObserver(server.coordinator)
 	}
-	server.handler = cors(config.AllowedOrigin, securityHeaders(mux))
+	server.handler = requestID(cors(config.AllowedOrigin, securityHeaders(mux)))
 	return server
 }
+
+func runtimeRequiredScope(request *http.Request) string {
+	if strings.HasSuffix(request.URL.Path, "/source:read") {
+		return auth.ScopeSourceRead
+	}
+	if request.Method == http.MethodGet || request.Method == http.MethodHead {
+		return auth.ScopeRuntimeRead
+	}
+	return auth.ScopeRuntimeWrite
+}
+
+func (s *Server) ControlHandler() http.Handler { return s.control }
 
 func cors(origin string, next http.Handler) http.Handler {
 	allowed := make(map[string]struct{})
@@ -75,13 +109,27 @@ func cors(origin string, next http.Handler) http.Handler {
 			originAllowed = true
 		}
 		if originAllowed {
-			response.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Idempotency-Key, Last-Event-ID, X-Request-Id")
+			response.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Idempotency-Key, Last-Event-ID, X-Request-Id, X-CodexRemote-Request")
 			response.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			if !allowAny {
+				response.Header().Set("Access-Control-Allow-Credentials", "true")
+			}
 		}
 		if request.Method == http.MethodOptions {
 			response.WriteHeader(http.StatusNoContent)
 			return
 		}
+		next.ServeHTTP(response, request)
+	})
+}
+
+func requestID(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		id := strings.TrimSpace(request.Header.Get("X-Request-Id"))
+		if id == "" || len(id) > 128 {
+			id = protocol.NewID()
+		}
+		response.Header().Set("X-Request-Id", id)
 		next.ServeHTTP(response, request)
 	})
 }

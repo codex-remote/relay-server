@@ -23,17 +23,25 @@ type Coordinator struct {
 	registry AgentRegistry
 	logger   *slog.Logger
 	workerID string
+	source   *SourceGateway
 }
 
 func NewCoordinator(store Store, broker Broker, registry AgentRegistry, logger *slog.Logger) *Coordinator {
+	return NewCoordinatorWithSource(store, broker, registry, logger, nil)
+}
+
+func NewCoordinatorWithSource(store Store, broker Broker, registry AgentRegistry, logger *slog.Logger, source *SourceGateway) *Coordinator {
 	ctx, cancel := context.WithCancel(context.Background())
-	c := &Coordinator{ctx: ctx, cancel: cancel, store: store, broker: broker, registry: registry, logger: logger, workerID: fmt.Sprintf("relay-%d", time.Now().UnixNano())}
+	c := &Coordinator{ctx: ctx, cancel: cancel, store: store, broker: broker, registry: registry, logger: logger, workerID: fmt.Sprintf("relay-%d", time.Now().UnixNano()), source: source}
 	go c.dispatchLoop()
 	return c
 }
 
 func (c *Coordinator) Close() {
 	c.cancel()
+	if c.source != nil {
+		c.source.FailPending(ErrSourceUnavailable)
+	}
 	_ = c.broker.SetAgentPresence(context.Background(), false)
 }
 
@@ -44,10 +52,16 @@ func (c *Coordinator) AgentConnected(peer hub.Peer) {
 }
 
 func (c *Coordinator) AgentDisconnected(hub.Peer) {
+	if c.source != nil {
+		c.source.FailPending(ErrSourceAgentOffline)
+	}
 	_ = c.broker.SetAgentPresence(context.Background(), false)
 }
 
 func (c *Coordinator) AgentMessage(peer hub.Peer, message protocol.Message) bool {
+	if c.source != nil && c.source.Handle(message) {
+		return true
+	}
 	switch message.Type {
 	case protocol.TypeAgentHello, protocol.TypeAgentStatus, protocol.TypeAgentCapabilities:
 		_ = c.broker.SetAgentPresence(c.ctx, true)
@@ -209,7 +223,8 @@ func (c *Coordinator) sendCommand(peer hub.Peer, command Command) error {
 func bootstrapBatch(payload protocol.BootstrapBatchPayload) BootstrapBatch {
 	batch := BootstrapBatch{
 		CommandID: payload.CommandID, SyncID: payload.SyncID, SnapshotID: payload.SnapshotID, BatchNo: payload.BatchNo,
-		Checksum: payload.Checksum, Done: payload.Done,
+		Checksum: payload.Checksum, TotalSessions: payload.TotalSessions, ProcessedSessions: payload.ProcessedSessions,
+		ReconciliationSafe: payload.ReconciliationSafe, Done: payload.Done,
 	}
 	if payload.Project != nil {
 		batch.Projects = append(batch.Projects, BootstrapProject{ID: payload.Project.ID, Name: payload.Project.Name})
@@ -224,6 +239,9 @@ func bootstrapBatch(payload protocol.BootstrapBatchPayload) BootstrapBatch {
 		ID: sessionID, ProjectID: thread.ProjectID, CodexThreadID: thread.ID, Title: thread.Title,
 	})
 	for _, turn := range thread.Turns {
+		if !isTerminalBootstrapStatus(turn.Status) {
+			continue
+		}
 		startedAt := turn.StartedAt
 		if startedAt == nil {
 			startedAt = &thread.CreatedAt
@@ -256,6 +274,15 @@ func bootstrapBatch(payload protocol.BootstrapBatchPayload) BootstrapBatch {
 		batch.Runs = append(batch.Runs, run)
 	}
 	return batch
+}
+
+func isTerminalBootstrapStatus(status string) bool {
+	switch status {
+	case "completed", "failed", "interrupted", "canceled", "cancelled":
+		return true
+	default:
+		return false
+	}
 }
 
 func runtimeEventType(messageType string) string {

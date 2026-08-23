@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ai-coding-remote/relay-server/internal/auth"
 	"github.com/ai-coding-remote/relay-server/internal/config"
 	runtimecore "github.com/ai-coding-remote/relay-server/internal/runtime"
 	"github.com/ai-coding-remote/relay-server/internal/server"
@@ -62,21 +63,52 @@ func realMain(arguments []string) int {
 		return 1
 	}
 	defer broker.Close()
-	relay := server.NewWithRuntime(base, logger, store, broker)
+	var authStore *auth.PostgresStore
+	var authModule server.RuntimeAuthModule
+	if base.AuthEnabled {
+		startupContext, startupCancel = context.WithTimeout(context.Background(), 15*time.Second)
+		authStore, err = auth.OpenPostgres(startupContext, base.DatabaseURL)
+		startupCancel()
+		if err != nil {
+			logger.Error("Open Auth PostgreSQL", "error", err)
+			return 1
+		}
+		defer authStore.Close()
+		authService := auth.NewService(authStore, auth.Config{
+			AccessTTL: base.AuthAccessTTL, RefreshTTL: base.AuthRefreshTTL, PairingTTL: base.AuthPairingTTL,
+		})
+		authModule = auth.NewModule(authService, auth.HTTPConfig{
+			CookieName: base.AuthCookieName, CookieSecure: base.AuthCookieSecure,
+		})
+	}
+	relay := server.NewWithRuntimeAndAuth(base, logger, store, broker, authModule)
 	httpServer := &http.Server{
 		Addr:              base.ListenAddr,
 		Handler:           relay.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
+	var controlServer *http.Server
+	if relay.ControlHandler() != nil {
+		controlServer = &http.Server{
+			Addr: base.AuthControlAddr, Handler: relay.ControlHandler(),
+			ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second,
+		}
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	errorsChannel := make(chan error, 1)
+	errorsChannel := make(chan error, 2)
 	go func() {
-		logger.Info("Relay listening", "address", base.ListenAddr, "auth", "disabled")
+		logger.Info("Relay listening", "address", base.ListenAddr, "runtime_auth", map[bool]string{true: "required", false: "disabled"}[base.AuthEnabled])
 		errorsChannel <- httpServer.ListenAndServe()
 	}()
+	if controlServer != nil {
+		go func() {
+			logger.Info("Auth control listening", "address", base.AuthControlAddr)
+			errorsChannel <- controlServer.ListenAndServe()
+		}()
+	}
 
 	select {
 	case err := <-errorsChannel:
@@ -95,6 +127,12 @@ func realMain(arguments []string) int {
 	if err := httpServer.Shutdown(shutdownContext); err != nil {
 		logger.Error("Relay shutdown failed", "error", err)
 		return 1
+	}
+	if controlServer != nil {
+		if err := controlServer.Shutdown(shutdownContext); err != nil {
+			logger.Error("Auth control shutdown failed", "error", err)
+			return 1
+		}
 	}
 	return 0
 }

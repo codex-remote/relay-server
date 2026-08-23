@@ -18,6 +18,7 @@
     "host_process_control": false,
     "user_library_write": false,
     "xcode_device_control": false,
-    "supports_permission_profiles": true
+    "supports_permission_profiles": true,
+    "supports_source_read": true
   }
 }

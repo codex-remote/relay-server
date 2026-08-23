@@ -1,8 +1,12 @@
-.PHONY: build test test-race vet e2e run apifox-validate apifox-check apifox-sync apifox-sync-websockets clean
+.PHONY: build pairqr test test-race vet e2e run apifox-validate apifox-check apifox-sync apifox-sync-websockets clean
 
 build:
 	go build -o bin/relay ./cmd/relay
 	go build -o bin/relayctl ./cmd/relayctl
+	go build -o bin/pairqr ./cmd/pairqr
+
+pairqr:
+	go build -o bin/pairqr ./cmd/pairqr
 
 test:
 	go test ./...
@@ -33,4 +37,4 @@ apifox-sync-websockets:
 
 clean:
 	go clean
-	rm -f bin/relay bin/relayctl
+	rm -f bin/relay bin/relayctl bin/pairqr

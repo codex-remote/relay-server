@@ -16,6 +16,7 @@ type Session struct {
 	CodexThreadID       string    `json:"codex_thread_id,omitempty"`
 	Title               string    `json:"title"`
 	LastSessionSequence int64     `json:"last_session_sequence"`
+	LatestRunStatus     string    `json:"latest_run_status,omitempty"`
 	CreatedAt           time.Time `json:"created_at"`
 	UpdatedAt           time.Time `json:"updated_at"`
 }
@@ -61,15 +62,20 @@ type Command struct {
 }
 
 type SyncJob struct {
-	ID                   string    `json:"sync_id"`
-	Status               string    `json:"status"`
-	SnapshotID           string    `json:"snapshot_id,omitempty"`
-	LastCommittedBatchNo int64     `json:"last_committed_batch_no"`
-	ItemCount            int64     `json:"item_count"`
-	ErrorCode            string    `json:"error_code,omitempty"`
-	ErrorMessage         string    `json:"error_message,omitempty"`
-	CreatedAt            time.Time `json:"created_at"`
-	UpdatedAt            time.Time `json:"updated_at"`
+	ID                    string    `json:"sync_id"`
+	Status                string    `json:"status"`
+	SnapshotID            string    `json:"snapshot_id,omitempty"`
+	LastCommittedBatchNo  int64     `json:"last_committed_batch_no"`
+	ItemCount             int64     `json:"item_count"`
+	TotalSessions         int64     `json:"total_sessions"`
+	ProcessedSessions     int64     `json:"processed_sessions"`
+	ArchivedSessions      int64     `json:"archived_sessions"`
+	ArchivedProjects      int64     `json:"archived_projects"`
+	ReconciliationApplied bool      `json:"reconciliation_applied"`
+	ErrorCode             string    `json:"error_code,omitempty"`
+	ErrorMessage          string    `json:"error_message,omitempty"`
+	CreatedAt             time.Time `json:"created_at"`
+	UpdatedAt             time.Time `json:"updated_at"`
 }
 
 type BootstrapProject struct {
@@ -103,13 +109,16 @@ type BootstrapEvent struct {
 }
 
 type BootstrapBatch struct {
-	CommandID  string             `json:"command_id"`
-	SyncID     string             `json:"sync_id"`
-	SnapshotID string             `json:"snapshot_id"`
-	BatchNo    int64              `json:"batch_no"`
-	Checksum   string             `json:"checksum"`
-	Projects   []BootstrapProject `json:"projects"`
-	Sessions   []BootstrapSession `json:"sessions"`
-	Runs       []BootstrapRun     `json:"runs"`
-	Done       bool               `json:"done"`
+	CommandID          string             `json:"command_id"`
+	SyncID             string             `json:"sync_id"`
+	SnapshotID         string             `json:"snapshot_id"`
+	BatchNo            int64              `json:"batch_no"`
+	Checksum           string             `json:"checksum"`
+	TotalSessions      int64              `json:"total_sessions"`
+	ProcessedSessions  int64              `json:"processed_sessions"`
+	ReconciliationSafe bool               `json:"reconciliation_safe"`
+	Projects           []BootstrapProject `json:"projects"`
+	Sessions           []BootstrapSession `json:"sessions"`
+	Runs               []BootstrapRun     `json:"runs"`
+	Done               bool               `json:"done"`
 }

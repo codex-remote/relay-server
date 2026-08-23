@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -22,6 +23,8 @@ var migrationFiles embed.FS
 type PostgresStore struct {
 	pool *pgxpool.Pool
 }
+
+const syncJobSelect = `SELECT sync_id,status,COALESCE(snapshot_id,''),last_committed_batch_no,item_count,total_sessions,processed_sessions,archived_sessions,archived_projects,reconciliation_applied,COALESCE(error_code,''),COALESCE(error_message,''),created_at,updated_at FROM runtime.sync_jobs`
 
 func OpenPostgres(ctx context.Context, databaseURL string) (*PostgresStore, error) {
 	pool, err := pgxpool.New(ctx, databaseURL)
@@ -41,13 +44,21 @@ func OpenPostgres(ctx context.Context, databaseURL string) (*PostgresStore, erro
 }
 
 func (s *PostgresStore) migrate(ctx context.Context) error {
-	data, err := migrationFiles.ReadFile("migrations/001_runtime.sql")
+	entries, err := migrationFiles.ReadDir("migrations")
 	if err != nil {
 		return err
 	}
-	_, err = s.pool.Exec(ctx, string(data))
-	if err != nil {
-		return fmt.Errorf("apply runtime migration: %w", err)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
+			continue
+		}
+		data, err := migrationFiles.ReadFile("migrations/" + entry.Name())
+		if err != nil {
+			return err
+		}
+		if _, err := s.pool.Exec(ctx, string(data)); err != nil {
+			return fmt.Errorf("apply runtime migration %s: %w", entry.Name(), err)
+		}
 	}
 	return nil
 }
@@ -68,7 +79,8 @@ func (s *PostgresStore) UpsertProjects(ctx context.Context, projects []Project) 
 		if strings.TrimSpace(project.ID) == "" || strings.TrimSpace(project.DisplayName) == "" {
 			continue
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO runtime.projects(project_id, display_name) VALUES($1,$2) ON CONFLICT(project_id) DO NOTHING`, project.ID, project.DisplayName); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO runtime.projects(project_id,display_name) VALUES($1,$2)
+			ON CONFLICT(project_id) DO UPDATE SET display_name=EXCLUDED.display_name,archived_at=NULL,updated_at=now()`, project.ID, project.DisplayName); err != nil {
 			return err
 		}
 	}
@@ -76,7 +88,7 @@ func (s *PostgresStore) UpsertProjects(ctx context.Context, projects []Project) 
 }
 
 func (s *PostgresStore) ListProjects(ctx context.Context) ([]Project, error) {
-	rows, err := s.pool.Query(ctx, `SELECT project_id, display_name FROM runtime.projects ORDER BY display_name, project_id`)
+	rows, err := s.pool.Query(ctx, `SELECT project_id,display_name FROM runtime.projects WHERE archived_at IS NULL ORDER BY display_name,project_id`)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +115,8 @@ func (s *PostgresStore) CreateSession(ctx context.Context, projectID, title, key
 	}
 	id := newID("session")
 	var item Session
-	err := s.pool.QueryRow(ctx, `INSERT INTO runtime.sessions(session_id,project_id,title,idempotency_key,request_hash) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING
+	err := s.pool.QueryRow(ctx, `INSERT INTO runtime.sessions(session_id,project_id,title,idempotency_key,request_hash)
+		SELECT $1,$2,$3,$4,$5 FROM runtime.projects WHERE project_id=$2 AND archived_at IS NULL ON CONFLICT DO NOTHING
 		RETURNING session_id,project_id,COALESCE(codex_thread_id,''),COALESCE(title,''),last_session_sequence,created_at,updated_at`, id, projectID, title, key, hash).
 		Scan(&item.ID, &item.ProjectID, &item.CodexThreadID, &item.Title, &item.LastSessionSequence, &item.CreatedAt, &item.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -129,7 +142,9 @@ type keyedSession struct {
 
 func (s *PostgresStore) sessionByKey(ctx context.Context, key string) (keyedSession, error) {
 	var value keyedSession
-	err := s.pool.QueryRow(ctx, `SELECT session_id,project_id,COALESCE(codex_thread_id,''),COALESCE(title,''),last_session_sequence,created_at,updated_at,request_hash FROM runtime.sessions WHERE idempotency_key=$1`, key).
+	err := s.pool.QueryRow(ctx, `SELECT s.session_id,s.project_id,COALESCE(s.codex_thread_id,''),COALESCE(s.title,''),s.last_session_sequence,s.created_at,s.updated_at,s.request_hash
+		FROM runtime.sessions s JOIN runtime.projects p ON p.project_id=s.project_id
+		WHERE s.idempotency_key=$1 AND s.archived_at IS NULL AND p.archived_at IS NULL`, key).
 		Scan(&value.session.ID, &value.session.ProjectID, &value.session.CodexThreadID, &value.session.Title, &value.session.LastSessionSequence, &value.session.CreatedAt, &value.session.UpdatedAt, &value.hash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return keyedSession{}, ErrNotFound
@@ -138,13 +153,16 @@ func (s *PostgresStore) sessionByKey(ctx context.Context, key string) (keyedSess
 }
 
 func (s *PostgresStore) ListSessions(ctx context.Context, projectID string) ([]Session, error) {
-	query := `SELECT session_id,project_id,COALESCE(codex_thread_id,''),COALESCE(title,''),last_session_sequence,created_at,updated_at FROM runtime.sessions`
+	query := `SELECT s.session_id,s.project_id,COALESCE(s.codex_thread_id,''),COALESCE(s.title,''),s.last_session_sequence,
+		COALESCE((SELECT r.status FROM runtime.runs r WHERE r.session_id=s.session_id ORDER BY r.created_at DESC,r.run_id DESC LIMIT 1),''),
+		s.created_at,s.updated_at
+		FROM runtime.sessions s JOIN runtime.projects p ON p.project_id=s.project_id WHERE s.archived_at IS NULL AND p.archived_at IS NULL`
 	args := []any{}
 	if projectID != "" {
-		query += ` WHERE project_id=$1`
+		query += ` AND s.project_id=$1`
 		args = append(args, projectID)
 	}
-	query += ` ORDER BY updated_at DESC, session_id DESC`
+	query += ` ORDER BY s.updated_at DESC,s.session_id DESC`
 	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -153,7 +171,7 @@ func (s *PostgresStore) ListSessions(ctx context.Context, projectID string) ([]S
 	result := make([]Session, 0)
 	for rows.Next() {
 		var item Session
-		if err := rows.Scan(&item.ID, &item.ProjectID, &item.CodexThreadID, &item.Title, &item.LastSessionSequence, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.ProjectID, &item.CodexThreadID, &item.Title, &item.LastSessionSequence, &item.LatestRunStatus, &item.CreatedAt, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
 		result = append(result, item)
@@ -163,7 +181,9 @@ func (s *PostgresStore) ListSessions(ctx context.Context, projectID string) ([]S
 
 func (s *PostgresStore) GetSession(ctx context.Context, id string) (Session, error) {
 	var item Session
-	err := s.pool.QueryRow(ctx, `SELECT session_id,project_id,COALESCE(codex_thread_id,''),COALESCE(title,''),last_session_sequence,created_at,updated_at FROM runtime.sessions WHERE session_id=$1`, id).
+	err := s.pool.QueryRow(ctx, `SELECT s.session_id,s.project_id,COALESCE(s.codex_thread_id,''),COALESCE(s.title,''),s.last_session_sequence,s.created_at,s.updated_at
+		FROM runtime.sessions s JOIN runtime.projects p ON p.project_id=s.project_id
+		WHERE s.session_id=$1 AND s.archived_at IS NULL AND p.archived_at IS NULL`, id).
 		Scan(&item.ID, &item.ProjectID, &item.CodexThreadID, &item.Title, &item.LastSessionSequence, &item.CreatedAt, &item.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Session{}, ErrNotFound
@@ -194,7 +214,9 @@ func (s *PostgresStore) CreateRun(ctx context.Context, sessionID, prompt, key, h
 	}
 	defer tx.Rollback(ctx)
 	var projectID, threadID string
-	if err := tx.QueryRow(ctx, `SELECT project_id,COALESCE(codex_thread_id,'') FROM runtime.sessions WHERE session_id=$1 FOR UPDATE`, sessionID).Scan(&projectID, &threadID); errors.Is(err, pgx.ErrNoRows) {
+	if err := tx.QueryRow(ctx, `SELECT s.project_id,COALESCE(s.codex_thread_id,'') FROM runtime.sessions s
+		JOIN runtime.projects p ON p.project_id=s.project_id
+		WHERE s.session_id=$1 AND s.archived_at IS NULL AND p.archived_at IS NULL FOR UPDATE OF s,p`, sessionID).Scan(&projectID, &threadID); errors.Is(err, pgx.ErrNoRows) {
 		return Run{}, 0, false, ErrNotFound
 	} else if err != nil {
 		return Run{}, 0, false, err
@@ -492,7 +514,7 @@ func (s *PostgresStore) CreateSyncJob(ctx context.Context, key string) (SyncJob,
 		return SyncJob{}, false, err
 	}
 	var active SyncJob
-	err = tx.QueryRow(ctx, `SELECT sync_id,status,COALESCE(snapshot_id,''),last_committed_batch_no,item_count,COALESCE(error_code,''),COALESCE(error_message,''),created_at,updated_at FROM runtime.sync_jobs WHERE idempotency_key=$1`, key).Scan(&active.ID, &active.Status, &active.SnapshotID, &active.LastCommittedBatchNo, &active.ItemCount, &active.ErrorCode, &active.ErrorMessage, &active.CreatedAt, &active.UpdatedAt)
+	err = tx.QueryRow(ctx, syncJobSelect+` WHERE idempotency_key=$1`, key).Scan(&active.ID, &active.Status, &active.SnapshotID, &active.LastCommittedBatchNo, &active.ItemCount, &active.TotalSessions, &active.ProcessedSessions, &active.ArchivedSessions, &active.ArchivedProjects, &active.ReconciliationApplied, &active.ErrorCode, &active.ErrorMessage, &active.CreatedAt, &active.UpdatedAt)
 	if err == nil {
 		if err := tx.Commit(ctx); err != nil {
 			return SyncJob{}, false, err
@@ -502,7 +524,7 @@ func (s *PostgresStore) CreateSyncJob(ctx context.Context, key string) (SyncJob,
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return SyncJob{}, false, err
 	}
-	err = tx.QueryRow(ctx, `SELECT sync_id,status,COALESCE(snapshot_id,''),last_committed_batch_no,item_count,COALESCE(error_code,''),COALESCE(error_message,''),created_at,updated_at FROM runtime.sync_jobs WHERE status IN ('queued','running') LIMIT 1`).Scan(&active.ID, &active.Status, &active.SnapshotID, &active.LastCommittedBatchNo, &active.ItemCount, &active.ErrorCode, &active.ErrorMessage, &active.CreatedAt, &active.UpdatedAt)
+	err = tx.QueryRow(ctx, syncJobSelect+` WHERE status IN ('queued','running') LIMIT 1`).Scan(&active.ID, &active.Status, &active.SnapshotID, &active.LastCommittedBatchNo, &active.ItemCount, &active.TotalSessions, &active.ProcessedSessions, &active.ArchivedSessions, &active.ArchivedProjects, &active.ReconciliationApplied, &active.ErrorCode, &active.ErrorMessage, &active.CreatedAt, &active.UpdatedAt)
 	if err == nil {
 		if err := tx.Commit(ctx); err != nil {
 			return SyncJob{}, false, err
@@ -528,7 +550,7 @@ func (s *PostgresStore) CreateSyncJob(ctx context.Context, key string) (SyncJob,
 }
 func (s *PostgresStore) GetSyncJob(ctx context.Context, id string) (SyncJob, error) {
 	var item SyncJob
-	err := s.pool.QueryRow(ctx, `SELECT sync_id,status,COALESCE(snapshot_id,''),last_committed_batch_no,item_count,COALESCE(error_code,''),COALESCE(error_message,''),created_at,updated_at FROM runtime.sync_jobs WHERE sync_id=$1`, id).Scan(&item.ID, &item.Status, &item.SnapshotID, &item.LastCommittedBatchNo, &item.ItemCount, &item.ErrorCode, &item.ErrorMessage, &item.CreatedAt, &item.UpdatedAt)
+	err := s.pool.QueryRow(ctx, syncJobSelect+` WHERE sync_id=$1`, id).Scan(&item.ID, &item.Status, &item.SnapshotID, &item.LastCommittedBatchNo, &item.ItemCount, &item.TotalSessions, &item.ProcessedSessions, &item.ArchivedSessions, &item.ArchivedProjects, &item.ReconciliationApplied, &item.ErrorCode, &item.ErrorMessage, &item.CreatedAt, &item.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return SyncJob{}, ErrNotFound
 	}
@@ -558,7 +580,8 @@ func (s *PostgresStore) ApplyBootstrapBatch(ctx context.Context, b BootstrapBatc
 		return SyncJob{}, fmt.Errorf("bootstrap batch %d is not next after %d", b.BatchNo, last)
 	}
 	for _, p := range b.Projects {
-		if _, err := tx.Exec(ctx, `INSERT INTO runtime.projects(project_id,display_name) VALUES($1,$2) ON CONFLICT DO NOTHING`, p.ID, p.Name); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO runtime.projects(project_id,display_name,last_seen_snapshot_id) VALUES($1,$2,$3)
+			ON CONFLICT(project_id) DO UPDATE SET display_name=EXCLUDED.display_name,last_seen_snapshot_id=EXCLUDED.last_seen_snapshot_id,archived_at=NULL,updated_at=now()`, p.ID, p.Name, b.SnapshotID); err != nil {
 			return SyncJob{}, err
 		}
 	}
@@ -573,27 +596,96 @@ func (s *PostgresStore) ApplyBootstrapBatch(ctx context.Context, b BootstrapBatc
 				return SyncJob{}, err
 			}
 		}
+		if _, err := tx.Exec(ctx, `UPDATE runtime.sessions SET project_id=$2,title=$3,last_seen_snapshot_id=$4,archived_at=NULL WHERE session_id=$1`, storedSessionID, v.ProjectID, v.Title, b.SnapshotID); err != nil {
+			return SyncJob{}, err
+		}
 		sessionIDs[v.ID] = storedSessionID
 	}
 	count := int64(0)
 	for _, r := range b.Runs {
+		status, terminal := normalizeImportedStatus(r.Status)
+		if !terminal {
+			continue
+		}
 		sessionID := r.SessionID
 		if storedSessionID, ok := sessionIDs[r.SessionID]; ok {
 			sessionID = storedSessionID
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO runtime.runs(run_id,session_id,codex_turn_id,status,prompt_text,started_at,finished_at,persisted_through_sequence,final_sequence) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$8) ON CONFLICT DO NOTHING`, r.ID, sessionID, r.CodexTurnID, normalizeImportedStatus(r.Status), r.Prompt, r.StartedAt, r.FinishedAt, len(r.Events)); err != nil {
-			return SyncJob{}, err
-		}
 		storedRunID := r.ID
+		var storedSessionID, storedStatus, storedPrompt string
+		var storedStartedAt, storedFinishedAt *time.Time
+		var storedPersisted int64
+		var storedFinal *int64
+		found := false
 		if r.CodexTurnID != "" {
-			if err := tx.QueryRow(ctx, `SELECT run_id FROM runtime.runs WHERE run_id=$1 OR codex_turn_id=$2 ORDER BY (run_id=$1) DESC LIMIT 1`, r.ID, r.CodexTurnID).Scan(&storedRunID); err != nil {
+			err := tx.QueryRow(ctx, `SELECT run_id,session_id,status,COALESCE(prompt_text,''),started_at,finished_at,persisted_through_sequence,final_sequence
+				FROM runtime.runs WHERE run_id=$1 OR codex_turn_id=$2 ORDER BY (run_id=$1) DESC LIMIT 1 FOR UPDATE`, r.ID, r.CodexTurnID).
+				Scan(&storedRunID, &storedSessionID, &storedStatus, &storedPrompt, &storedStartedAt, &storedFinishedAt, &storedPersisted, &storedFinal)
+			if err == nil {
+				found = true
+			} else if !errors.Is(err, pgx.ErrNoRows) {
+				return SyncJob{}, err
+			}
+		} else {
+			err := tx.QueryRow(ctx, `SELECT run_id,session_id,status,COALESCE(prompt_text,''),started_at,finished_at,persisted_through_sequence,final_sequence
+				FROM runtime.runs WHERE run_id=$1 FOR UPDATE`, r.ID).
+				Scan(&storedRunID, &storedSessionID, &storedStatus, &storedPrompt, &storedStartedAt, &storedFinishedAt, &storedPersisted, &storedFinal)
+			if err == nil {
+				found = true
+			} else if !errors.Is(err, pgx.ErrNoRows) {
+				return SyncJob{}, err
+			}
+		}
+
+		changed := !found
+		if found {
+			eventsMatch, err := importedEventsMatch(ctx, tx, storedRunID, r.Events)
+			if err != nil {
+				return SyncJob{}, err
+			}
+			expectedFinal := int64(len(r.Events))
+			changed = storedSessionID != sessionID || storedStatus != status || storedPrompt != r.Prompt ||
+				!sameOptionalTime(storedStartedAt, r.StartedAt) || !sameOptionalTime(storedFinishedAt, r.FinishedAt) ||
+				storedPersisted != expectedFinal || storedFinal == nil || *storedFinal != expectedFinal || !eventsMatch
+		}
+		if !changed {
+			count++
+			continue
+		}
+
+		finalSequence := int64(len(r.Events))
+		if found {
+			if _, err := tx.Exec(ctx, `UPDATE runtime.runs SET session_id=$2,codex_turn_id=NULLIF($3,''),status=$4,state_version=state_version+1,
+				prompt_text=$5,cancel_requested_at=NULL,persisted_through_sequence=$6,final_sequence=$6,error_code=NULL,error_message=NULL,
+				created_at=COALESCE($7,created_at),started_at=$7,finished_at=$8,updated_at=now() WHERE run_id=$1`,
+				storedRunID, sessionID, r.CodexTurnID, status, r.Prompt, finalSequence, r.StartedAt, r.FinishedAt); err != nil {
+				return SyncJob{}, err
+			}
+			if _, err := tx.Exec(ctx, `DELETE FROM runtime.run_events WHERE run_id=$1`, storedRunID); err != nil {
+				return SyncJob{}, err
+			}
+		} else {
+			if _, err := tx.Exec(ctx, `INSERT INTO runtime.runs(run_id,session_id,codex_turn_id,status,prompt_text,created_at,started_at,finished_at,persisted_through_sequence,final_sequence)
+				VALUES($1,$2,NULLIF($3,''),$4,$5,COALESCE($6,now()),$6,$7,$8,$8)`, r.ID, sessionID, r.CodexTurnID, status, r.Prompt, r.StartedAt, r.FinishedAt, finalSequence); err != nil {
 				return SyncJob{}, err
 			}
 		}
 		for _, e := range r.Events {
-			if _, err := tx.Exec(ctx, `INSERT INTO runtime.run_events(run_id,agent_sequence,event_type,payload,occurred_at) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`, storedRunID, e.Sequence, e.Type, e.Payload, e.OccurredAt); err != nil {
+			if _, err := tx.Exec(ctx, `INSERT INTO runtime.run_events(run_id,agent_sequence,event_type,payload,occurred_at) VALUES($1,$2,$3,$4,$5)`, storedRunID, e.Sequence, e.Type, e.Payload, e.OccurredAt); err != nil {
 				return SyncJob{}, err
 			}
+		}
+		var sessionSequence int64
+		if err := tx.QueryRow(ctx, `UPDATE runtime.sessions SET last_session_sequence=last_session_sequence+1,updated_at=now() WHERE session_id=$1 RETURNING last_session_sequence`, sessionID).Scan(&sessionSequence); err != nil {
+			return SyncJob{}, err
+		}
+		sessionEventType := "run.status.changed"
+		if status == "completed" {
+			sessionEventType = "run.completed"
+		}
+		payload, _ := json.Marshal(map[string]any{"schema_version": 1, "session_id": sessionID, "run_id": storedRunID, "status": status})
+		if _, err := tx.Exec(ctx, `INSERT INTO runtime.session_events(session_id,session_sequence,event_type,payload) VALUES($1,$2,$3,$4)`, sessionID, sessionSequence, sessionEventType, payload); err != nil {
+			return SyncJob{}, err
 		}
 		count++
 	}
@@ -601,7 +693,38 @@ func (s *PostgresStore) ApplyBootstrapBatch(ctx context.Context, b BootstrapBatc
 	if b.Done {
 		status = "completed"
 	}
-	if _, err := tx.Exec(ctx, `UPDATE runtime.sync_jobs SET status=$2,snapshot_id=$3,last_committed_batch_no=$4,last_batch_checksum=$5,item_count=item_count+$6,updated_at=now() WHERE sync_id=$1`, b.SyncID, status, b.SnapshotID, b.BatchNo, b.Checksum, count); err != nil {
+	archivedSessions := int64(0)
+	archivedProjects := int64(0)
+	if b.Done && b.ReconciliationSafe && b.SnapshotID != "" {
+		result, err := tx.Exec(ctx, `UPDATE runtime.sessions AS s SET archived_at=now()
+			WHERE s.codex_thread_id IS NOT NULL
+			  AND s.archived_at IS NULL
+			  AND s.last_seen_snapshot_id IS DISTINCT FROM $2
+			  AND s.updated_at <= (SELECT created_at FROM runtime.sync_jobs WHERE sync_id=$1)
+			  AND NOT EXISTS (
+				SELECT 1 FROM runtime.runs AS r
+				WHERE r.session_id=s.session_id
+				  AND r.status IN ('queued','dispatching','accepted','running','waiting_agent','recovering','finalizing')
+			  )`, b.SyncID, b.SnapshotID)
+		if err != nil {
+			return SyncJob{}, err
+		}
+		archivedSessions = result.RowsAffected()
+		result, err = tx.Exec(ctx, `UPDATE runtime.projects AS p SET archived_at=now(),updated_at=now()
+			WHERE p.archived_at IS NULL
+			  AND p.last_seen_snapshot_id IS DISTINCT FROM $2
+			  AND p.updated_at <= (SELECT created_at FROM runtime.sync_jobs WHERE sync_id=$1)
+			  AND NOT EXISTS (
+				SELECT 1 FROM runtime.sessions AS s JOIN runtime.runs AS r ON r.session_id=s.session_id
+				WHERE s.project_id=p.project_id
+				  AND r.status IN ('queued','dispatching','accepted','running','waiting_agent','recovering','finalizing')
+			  )`, b.SyncID, b.SnapshotID)
+		if err != nil {
+			return SyncJob{}, err
+		}
+		archivedProjects = result.RowsAffected()
+	}
+	if _, err := tx.Exec(ctx, `UPDATE runtime.sync_jobs SET status=$2,snapshot_id=$3,last_committed_batch_no=$4,last_batch_checksum=$5,item_count=item_count+$6,total_sessions=GREATEST(total_sessions,$7),processed_sessions=GREATEST(processed_sessions,$8),archived_sessions=archived_sessions+$9,archived_projects=archived_projects+$10,reconciliation_applied=reconciliation_applied OR $11,updated_at=now() WHERE sync_id=$1`, b.SyncID, status, b.SnapshotID, b.BatchNo, b.Checksum, count, b.TotalSessions, b.ProcessedSessions, archivedSessions, archivedProjects, b.Done && b.ReconciliationSafe); err != nil {
 		return SyncJob{}, err
 	}
 	if b.Done && b.CommandID != "" {
@@ -615,15 +738,64 @@ func (s *PostgresStore) ApplyBootstrapBatch(ctx context.Context, b BootstrapBatc
 	return s.GetSyncJob(ctx, b.SyncID)
 }
 
-func normalizeImportedStatus(value string) string {
+func normalizeImportedStatus(value string) (string, bool) {
 	switch value {
+	case "completed":
+		return "completed", true
 	case "failed":
-		return "failed"
+		return "failed", true
 	case "interrupted", "canceled", "cancelled":
-		return "canceled"
+		return "canceled", true
 	default:
-		return "completed"
+		return "", false
 	}
+}
+
+func sameOptionalTime(left, right *time.Time) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return left.UTC().Truncate(time.Microsecond).Equal(right.UTC().Truncate(time.Microsecond))
+}
+
+func importedEventsMatch(ctx context.Context, tx pgx.Tx, runID string, expected []BootstrapEvent) (bool, error) {
+	rows, err := tx.Query(ctx, `SELECT agent_sequence,event_type,payload,occurred_at FROM runtime.run_events WHERE run_id=$1 ORDER BY agent_sequence`, runID)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	index := 0
+	for rows.Next() {
+		if index >= len(expected) {
+			return false, nil
+		}
+		var sequence int64
+		var eventType string
+		var payload json.RawMessage
+		var occurredAt time.Time
+		if err := rows.Scan(&sequence, &eventType, &payload, &occurredAt); err != nil {
+			return false, err
+		}
+		want := expected[index]
+		if sequence != want.Sequence || eventType != want.Type ||
+			!occurredAt.UTC().Truncate(time.Microsecond).Equal(want.OccurredAt.UTC().Truncate(time.Microsecond)) ||
+			!jsonPayloadEqual(payload, want.Payload) {
+			return false, nil
+		}
+		index++
+	}
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	return index == len(expected), nil
+}
+
+func jsonPayloadEqual(left, right json.RawMessage) bool {
+	var leftValue, rightValue any
+	if json.Unmarshal(left, &leftValue) != nil || json.Unmarshal(right, &rightValue) != nil {
+		return false
+	}
+	return reflect.DeepEqual(leftValue, rightValue)
 }
 func RequestHash(value any) string {
 	data, _ := json.Marshal(value)

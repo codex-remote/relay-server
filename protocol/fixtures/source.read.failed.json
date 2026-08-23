@@ -1,0 +1,12 @@
+{
+  "spec_version": "2.0",
+  "message_id": "019fe7db-0100-7000-8000-000000000032",
+  "type": "source.read.failed",
+  "occurred_at": "2026-08-22T09:00:00Z",
+  "trace_id": "source-request-1",
+  "sender": { "kind": "device", "id": "local-mac" },
+  "payload": {
+    "code": "SOURCE_FORBIDDEN",
+    "message": "This file is not available in the source viewer."
+  }
+}

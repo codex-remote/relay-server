@@ -9,18 +9,26 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ai-coding-remote/relay-server/internal/protocol"
 )
 
 type API struct {
 	store  Store
 	broker Broker
+	source SourceProvider
 }
 
 func NewAPI(store Store, broker Broker) *API { return &API{store: store, broker: broker} }
 
+func NewAPIWithSource(store Store, broker Broker, source SourceProvider) *API {
+	return &API{store: store, broker: broker, source: source}
+}
+
 func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/runtime/healthz", a.health)
 	mux.HandleFunc("GET /v1/runtime/projects", a.projects)
+	mux.HandleFunc("POST /v1/runtime/projects/{project_id}/source:read", a.projectSource)
 	mux.HandleFunc("GET /v1/runtime/sessions", a.sessions)
 	mux.HandleFunc("POST /v1/runtime/sessions", a.createSession)
 	mux.HandleFunc("GET /v1/runtime/sessions/{session_id}", a.session)
@@ -32,6 +40,47 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/runtime/runs/{run_id}/events", a.runEvents)
 	mux.HandleFunc("POST /v1/runtime/bootstrap-syncs", a.createSync)
 	mux.HandleFunc("GET /v1/runtime/bootstrap-syncs/{sync_id}", a.sync)
+}
+
+func (a *API) projectSource(w http.ResponseWriter, r *http.Request) {
+	if a.source == nil {
+		writeError(w, http.StatusServiceUnavailable, "SOURCE_READ_DISABLED", false)
+		return
+	}
+	projectID := strings.TrimSpace(r.PathValue("project_id"))
+	var request struct {
+		Path         string `json:"path"`
+		Line         int    `json:"line,omitempty"`
+		ContextLines int    `json:"context_lines,omitempty"`
+	}
+	if !decodeJSON(w, r, &request) {
+		return
+	}
+	request.Path = strings.TrimSpace(request.Path)
+	if projectID == "" || request.Path == "" || len(projectID) > 256 || len(request.Path) > 4096 {
+		writeError(w, http.StatusBadRequest, "SOURCE_INVALID", false)
+		return
+	}
+	if request.Line < 0 || request.Line > 10_000_000 {
+		writeError(w, http.StatusBadRequest, "SOURCE_INVALID_LINE", false)
+		return
+	}
+	if request.ContextLines < 0 || request.ContextLines > 500 {
+		writeError(w, http.StatusBadRequest, "SOURCE_INVALID_CONTEXT", false)
+		return
+	}
+	if request.ContextLines == 0 {
+		request.ContextLines = 200
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	snapshot, err := a.source.Read(ctx, protocol.SourceReadPayload{ProjectID: projectID, Path: request.Path, FocusLine: request.Line, ContextLines: request.ContextLines})
+	if err == nil {
+		writeData(w, http.StatusOK, snapshot)
+		return
+	}
+	status, code, retryable := sourceHTTPError(err)
+	writeError(w, status, code, retryable)
 }
 
 func (a *API) health(w http.ResponseWriter, r *http.Request) {
@@ -350,4 +399,39 @@ func nullableTime(value time.Time) any {
 		return nil
 	}
 	return value
+}
+
+func sourceHTTPError(err error) (int, string, bool) {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return http.StatusGatewayTimeout, "SOURCE_TIMEOUT", true
+	case errors.Is(err, context.Canceled):
+		return http.StatusRequestTimeout, "SOURCE_CANCELED", true
+	case errors.Is(err, ErrSourceAgentOffline):
+		return http.StatusServiceUnavailable, "AGENT_OFFLINE", true
+	case errors.Is(err, ErrSourceUnavailable):
+		return http.StatusBadGateway, "SOURCE_UNAVAILABLE", true
+	case errors.Is(err, ErrSourceBusy):
+		return http.StatusTooManyRequests, "SOURCE_BUSY", true
+	}
+	var remote *SourceRemoteError
+	if !errors.As(err, &remote) {
+		return http.StatusInternalServerError, "INTERNAL_ERROR", true
+	}
+	switch remote.Code {
+	case "PROJECT_NOT_FOUND", "SOURCE_NOT_FOUND":
+		return http.StatusNotFound, remote.Code, false
+	case "SOURCE_FORBIDDEN":
+		return http.StatusForbidden, remote.Code, false
+	case "SOURCE_TOO_LARGE":
+		return http.StatusRequestEntityTooLarge, remote.Code, false
+	case "SOURCE_BINARY":
+		return http.StatusUnsupportedMediaType, remote.Code, false
+	case "SOURCE_INVALID":
+		return http.StatusBadRequest, remote.Code, false
+	case "SOURCE_UNAVAILABLE":
+		return http.StatusServiceUnavailable, remote.Code, true
+	default:
+		return http.StatusBadGateway, "SOURCE_READ_FAILED", true
+	}
 }

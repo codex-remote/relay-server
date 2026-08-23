@@ -1,0 +1,36 @@
+{
+  "spec_version": "2.0",
+  "message_id": "aaaaaaaaaaaa4aaa8aaaaaaaaaaaaaaa",
+  "type": "bootstrap.batch",
+  "occurred_at": "2026-08-21T10:00:00Z",
+  "trace_id": "sync_example",
+  "sender": { "kind": "device", "id": "local-mac" },
+  "payload": {
+    "command_id": "command_example",
+    "sync_id": "sync_example",
+    "snapshot_id": "snapshot_example",
+    "batch_no": 4,
+    "checksum": "sha256-example",
+    "total_sessions": 10,
+    "processed_sessions": 5,
+    "reconciliation_safe": false,
+    "project": {
+      "id": "project_example",
+      "name": "Example",
+      "path": "/work/example",
+      "thread_count": 10
+    },
+    "thread": {
+      "id": "thread_example",
+      "project_id": "project_example",
+      "title": "Example session",
+      "preview": "Example prompt",
+      "status": "idle",
+      "source": "appServer",
+      "created_at": "2026-08-21T09:00:00Z",
+      "updated_at": "2026-08-21T09:30:00Z",
+      "turns": []
+    },
+    "done": false
+  }
+}

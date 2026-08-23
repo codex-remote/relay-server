@@ -1,6 +1,6 @@
 # AI Coding Remote - Relay Server
 
-Go 实现的无状态通信中枢。Relay 在 iPhone App 和 Mac Agent 之间转发 WebSocket JSON 消息，不执行 Codex，也不保存 Project、Thread、Prompt、输出、Diff 或业务 Task。
+Go 实现的 WebSocket Relay 与 Run Server。WebSocket Relay 负责 iPhone/Mac Agent 实时通信；Run Server 负责 Mobile Web 的 Runtime HTTP/SSE、PostgreSQL 权威状态和 Redis 活跃事件。Runtime Auth 通过独立包、`auth` Schema 和 `RuntimeAuthModule` 接入。它们共用当前二进制，但代码、路由和数据边界分离；这里的 Relay 不应与 `mobile-web` 仓库的 Mobile Web Gateway 混称。
 
 ## 技术栈
 
@@ -9,12 +9,12 @@ Go 实现的无状态通信中枢。Relay 在 iPhone App 和 Mac Agent 之间转
 | 语言 | Go 1.23+ |
 | HTTP | `net/http` |
 | WebSocket | `github.com/coder/websocket` |
-| 状态 | 进程内单 App/Agent Connection Registry |
+| 状态 | PostgreSQL `runtime/auth` + Redis 活跃流 + 进程内 Connection Registry |
 | 日志 | `slog` JSON Handler |
 | 协议 | JSON + JSON Schema，`spec_version: "2.0"` |
 | 部署 | 原生二进制或 Docker |
 
-当前不使用 Gin、Python、数据库、Redis、MQ、鉴权框架或 ORM。
+当前不使用 Gin、Python、ORM、MQ 或外部鉴权框架。Runtime/Auth 直接使用 `pgx`，实时加速使用 `go-redis`。
 
 ## MVP 能力
 
@@ -23,13 +23,16 @@ Go 实现的无状态通信中枢。Relay 在 iPhone App 和 Mac Agent 之间转
 - `/ws/app`：iPhone 或 `relayctl` 入口。
 - `/ws/agent`：Mac Agent 入口。
 - v2 Project/Thread/Turn 消息方向白名单和透明转发，包括 `thread.read -> thread.detail` 历史查询。
+- 提供项目范围的源码读取 API；统一 Runtime Auth 要求 `source:read` Scope，请求只在内存中关联到 Mac Agent，不持久化源码正文。
 - 转发按项目的 `execution.profile.list -> execution.profile.snapshot` 权限协商，并在 `turn.start` 传递所选 profile ID。
 - Agent 离线时返回 `turn.rejected/AGENT_OFFLINE`。
 - App 重连时恢复最近的 `agent.hello`、`agent.status` 和 `agent.capabilities`。
 - Ping/Pong、256 KiB 帧限制、有界发送队列和优雅关闭。
-- `relayctl` 查询项目、会话列表和会话详情，启动 Turn、观察事件和中断。
+- Runtime v1 Project/Session/Run/Bootstrap HTTP 与 Session/Run SSE。
+- 一次性配对、短期 Opaque Access Token、HttpOnly Refresh Cookie Rotation 和重放撤销。
+- `pairqr` 可自动生成局域网配对链接和二维码；`relayctl` 还可创建纯文本链接、列出和撤销 Runtime 客户端。
 
-MVP 无鉴权、数据库、业务 Task、队列和执行历史。只能用于可信局域网、Tailscale 或等价私有网络，不能直接暴露到公网。
+旧 iPhone `/ws/app` MVP 仍是无应用层鉴权的历史接口，只能用于可信私有网络。Mobile Web Runtime 已启用独立鉴权，但完成 TLS、限流和公网硬化前仍不能直接暴露到公共互联网。
 
 ## Admin 与日志边界
 
@@ -60,15 +63,17 @@ Relay 负责生产标准 JSONL 服务日志，未来由本地 Diagnostics Collec
 ./run debug
 ./run simulator
 ./run iphone
+./run mobileweb
 ```
 
-`debug` 固定使用 `18765`，供 Apifox 和手动协议调试；`simulator` 固定使用 `18767`，供本机 iPhone Simulator；`iphone` 固定使用 `18768`，供真机 iPhone。三个 profile 使用独立的 `launchctl` 服务、PID、日志和重启锁，可以同时运行。脚本只会清理当前 profile 的端口监听并等待健康检查通过，启动成功后打印可直接复制的本机和局域网 HTTP/WebSocket 地址。
+`debug` 固定使用 `18765`；`simulator` 使用 `18767`；`iphone` 使用 `18768`。这三个旧 WebSocket profile 显式关闭 Runtime Auth Control。`mobileweb` 使用 Loopback `127.0.0.1:18775`，独占 Auth Control `18776`，由 Mobile Web Gateway `18774` 对局域网提供唯一入口。四个 profile 使用独立的 `launchctl` 服务、PID、日志和重启锁。
 
 ```bash
 curl http://127.0.0.1:18765/healthz
 curl http://127.0.0.1:18765/status
 curl http://127.0.0.1:18767/status
 curl http://127.0.0.1:18768/status
+curl http://127.0.0.1:18775/status
 ```
 
 `/status` 返回示例：
@@ -78,6 +83,24 @@ curl http://127.0.0.1:18768/status
 ```
 
 `app_connection_id` 只在 App 已连接时出现，并随连接替换递增。`last_turn_acknowledged*` 是进程内最近一次 `turn.acknowledged`，用于让延迟真机维护任务确认最终输出已由 App 应用；Relay 重启后会清空。
+
+### Mobile Web 二维码配对
+
+`mobileweb`、Gateway 和 Auth Control 已启动时，直接运行：
+
+```bash
+./bin/pairqr
+devrun crpair
+```
+
+`devrun crpair` 是注册后的推荐入口，等价全名为 `devrun codexremote mobileweb-pairing qr`，也可按 Auth Control 端口运行 `devrun 18776`。三个入口默认把约 45×23 的 `compact` 白底半块二维码绘制到终端末尾；一列字符对应一个 QR 模块、上下半块分别对应两行模块，避免 Braille 字形间隙破坏扫码识别。空间极其受限时仍可显式传入 `--terminal-render small`，但该约 23×12 模式依赖终端字体，不作为手机扫码的可靠路径。交互终端中的标题、有效期、链接、路径和安全警告使用不同颜色，设置 `NO_COLOR` 后恢复纯文本。嵌入其他已提供安全提示的启动器时，可用 `--print-metadata=false` 隐藏重复标题和警告。工具自动选择 Mac 的私有局域网 IPv4，使用 Gateway 端口 `18774`；地址选择不正确时可以显式覆盖，需要保存图片时使用 `--output`，生成文件权限固定为 `0600`：
+
+```bash
+devrun crpair --origin http://192.168.3.8:18774 --name "My iPhone"
+devrun crpair --output .run/mobileweb/pairing.png
+```
+
+二维码包含默认 10 分钟有效且只能兑换一次的 Pairing Grant。PNG 和终端链接都属于短期凭证，不应上传或发送到公开频道。`pairqr` 只连接 Loopback Auth Control；手机仍只访问 Mobile Web Gateway。
 
 ## 局域网联调
 
@@ -186,6 +209,8 @@ fake Codex App Server → Git Diff
 
 ## Docker
 
+当前 Docker/Compose 示例只用于旧 Relay WebSocket 本地调试并显式设置 `AUTH_ENABLED=false`；它不是 Mobile Web Gateway/Auth 部署拓扑，不能暴露到公网。
+
 ```bash
 docker compose up --build
 ```
@@ -212,21 +237,33 @@ docker run --rm -p 18765:18765 ai-coding-remote-relay
 | `RUNTIME_DATABASE_URL` | 本机开发 PostgreSQL | Runtime PostgreSQL 连接串 |
 | `RUNTIME_REDIS_URL` | 本机开发 Redis | Runtime Redis 连接串 |
 | `RUNTIME_ALLOWED_ORIGIN` | `http://127.0.0.1:4173` | 逗号分隔的 CORS allowlist；本地开发可显式设为 `*` |
+| `AUTH_ENABLED` | `true` | 启用 Runtime Auth；`mobileweb` 必须保持启用 |
+| `AUTH_CONTROL_ADDR` | `127.0.0.1:18776` | 仅 Loopback 的配对/设备控制面 |
+| `AUTH_ACCESS_TTL` | `15m` | Access Token TTL |
+| `AUTH_REFRESH_TTL` | `720h` | Refresh Session TTL |
+| `AUTH_PAIRING_TTL` | `10m` | 一次性配对授权 TTL |
+| `AUTH_REFRESH_COOKIE_NAME` | `codexremote_refresh` | HttpOnly Refresh Cookie 名称 |
+| `AUTH_COOKIE_SECURE` | `false` | 局域网 HTTP 为 `false`；公网 HTTPS 必须为 `true` |
 
-本地开发的 `.env.example` 和 `compose.yaml` 使用 `RUNTIME_ALLOWED_ORIGIN=*`，因此 Mac 局域网 IP 变化后不需要更新 CORS。`*` 不允许凭证式 Cookie 跨域，也不得用于公网或生产环境；阶段 7 必须恢复为明确的 HTTPS Origin allowlist。
+Mobile Web 通过 Gateway 同源访问，不依赖跨端口 CORS。`RUNTIME_ALLOWED_ORIGIN=*` 只允许明确的旧接口调试，不得用于公网或生产环境。
+
+源码查看调用 `POST /v1/runtime/projects/{project_id}/source:read`，要求 `source:read` Scope。JSON Body 包含 `path`、`line` 和 `context_lines`；绝对路径不会进入 API URL。详细契约见 [protocol/source-read.md](protocol/source-read.md)。
 
 ## 结构与演进
 
 ```text
 cmd/relay/       Server 入口
 cmd/relayctl/    CLI 调试 App
+cmd/pairqr/      Loopback Auth Control 配对二维码工具
 internal/hub/    Connection Registry
 internal/router/ 角色路由和离线拒绝
-internal/server/ HTTP 组装
+internal/server/ HTTP 组装、Runtime Scope 路由策略与 Auth 插件接口
 internal/websocket/ 连接读写与心跳
 internal/protocol/ v2 Go 模型
+internal/runtime/ HTTP/SSE、持久 Runtime 协调与短生命周期源码读取
+internal/auth/    Runtime 配对、Token、通用 Scope 中间件、Module 与独立 PostgreSQL 迁移
 protocol/        Schema 与 Fixtures
 apifox/          HTTP/WebSocket 同步源
 ```
 
-未来 Relay 鉴权接入握手中间件，多 Mac 替换 Registry，可靠投递增加序号与 Inbox/Outbox。用户管理、后台查询、诊断任务和日志存储由独立 Admin Platform 提供，不再作为 Relay 内部控制面演进项。这些扩展不需要重写 WebSocket 读写循环或 Mac Codex Adapter，但不承诺兼容删除的预发布 `1.0` 协议。
+Runtime Auth 已在 HTTP 中间件实现。Auth 包不识别 Runtime URL；Server 组装层提供所需 Scope，并通过最小 `RuntimeAuthModule` 接口挂载公开 API、保护中间件和 Control Handler。Auth Control `18776` 是同一 Relay 进程内的 Loopback Listener，不是可独立部署的微服务。旧 App/Agent WebSocket 的设备身份仍是后续独立工作。用户管理、后台查询、诊断任务和日志存储由 Admin Platform 提供，不作为 Runtime Auth 表的扩展方向。

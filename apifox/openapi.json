@@ -3,23 +3,27 @@
   "info": {
     "title": "Codex Remote Run Server",
     "version": "1.0.0",
-    "description": "Mobile Web 当前使用的 Run Server HTTPS 与 SSE 契约。PostgreSQL 保存权威状态，Redis 仅保存活跃事件流和 Agent presence。当前开发环境未启用应用层鉴权。"
+    "description": "Mobile Web Gateway 使用的 Run Server HTTPS/SSE 与 Runtime Auth 契约。PostgreSQL 保存 Runtime 与 Auth 权威状态，Redis 仅保存活跃事件流和 Agent presence。所有 Runtime 接口统一要求短期 Opaque Bearer Access Token。"
   },
   "servers": [
     { "url": "http://127.0.0.1:18765", "description": "本机 Run Server" }
   ],
   "tags": [
     { "name": "Relay 状态" },
+    { "name": "Runtime Auth" },
     { "name": "Runtime" },
+    { "name": "Source" },
     { "name": "Runtime SSE" },
     { "name": "Bootstrap" }
   ],
+  "security": [{ "RuntimeBearer": [] }],
   "paths": {
     "/healthz": {
       "get": {
         "operationId": "getRelayHealth",
         "summary": "Relay 进程存活检查",
         "tags": ["Relay 状态"],
+        "security": [],
         "responses": { "200": { "description": "进程正常", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LegacyHealth" } } } } }
       }
     },
@@ -28,7 +32,59 @@
         "operationId": "getRelayStatus",
         "summary": "Relay WebSocket 连接状态",
         "tags": ["Relay 状态"],
+        "security": [],
         "responses": { "200": { "description": "连接状态", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } } }
+      }
+    },
+    "/v1/auth/pairing-grants:exchange": {
+      "post": {
+        "operationId": "exchangeRuntimePairingGrant",
+        "summary": "兑换一次性配对码",
+        "tags": ["Runtime Auth"],
+        "security": [],
+        "parameters": [{ "$ref": "#/components/parameters/BrowserRequest" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false, "required": ["code"], "properties": { "code": { "type": "string" } } } } } },
+        "responses": {
+          "200": { "description": "返回短期 Access Token，并设置 HttpOnly Refresh Cookie", "headers": { "Set-Cookie": { "schema": { "type": "string" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TokenEnvelope" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "409": { "$ref": "#/components/responses/Conflict" }
+        }
+      }
+    },
+    "/v1/auth/tokens:refresh": {
+      "post": {
+        "operationId": "refreshRuntimeToken",
+        "summary": "轮换 Refresh Token 并签发新 Access Token",
+        "tags": ["Runtime Auth"],
+        "security": [{ "RefreshCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/BrowserRequest" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false } } } },
+        "responses": {
+          "200": { "description": "轮换成功", "headers": { "Set-Cookie": { "schema": { "type": "string" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TokenEnvelope" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/v1/auth/sessions/current:revoke": {
+      "post": {
+        "operationId": "revokeCurrentRuntimeSession",
+        "summary": "撤销当前 Refresh 会话",
+        "tags": ["Runtime Auth"],
+        "security": [{ "RefreshCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/BrowserRequest" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false } } } },
+        "responses": { "204": { "description": "会话已撤销并清除 Cookie" } }
+      }
+    },
+    "/v1/auth/me": {
+      "get": {
+        "operationId": "getRuntimePrincipal",
+        "summary": "读取当前 Runtime Principal",
+        "tags": ["Runtime Auth"],
+        "responses": {
+          "200": { "description": "当前客户端和 Scope", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PrincipalEnvelope" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
       }
     },
     "/v1/runtime/healthz": {
@@ -48,6 +104,28 @@
         "summary": "列出 Mac Agent 项目",
         "tags": ["Runtime"],
         "responses": { "200": { "description": "项目及 Agent 在线摘要", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectListEnvelope" } } } } }
+      }
+    },
+    "/v1/runtime/projects/{project_id}/source:read": {
+      "post": {
+        "operationId": "getRuntimeProjectSource",
+        "summary": "读取 Mac Agent 项目源码",
+        "description": "短生命周期读取当前工作树，不持久化源码。绝对路径仅作为历史回答兼容输入，Mac Agent 必须验证其属于所选项目。",
+        "tags": ["Source"],
+        "security": [{ "RuntimeBearer": [] }],
+        "parameters": [{ "name": "project_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SourceReadRequest" } } } },
+        "responses": {
+          "200": { "description": "当前源码窗口", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SourceEnvelope" } } } },
+          "401": { "description": "源码访问令牌缺失或错误", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },
+          "403": { "description": "路径越界或敏感文件", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "413": { "description": "源码或目标行过大", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },
+          "415": { "description": "不支持二进制源码", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },
+          "429": { "description": "同时读取请求过多", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },
+          "503": { "$ref": "#/components/responses/ServiceUnavailable" },
+          "504": { "description": "Mac Agent 读取超时", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } }
+        }
       }
     },
     "/v1/runtime/sessions": {
@@ -183,28 +261,39 @@
     }
   },
   "components": {
+    "securitySchemes": {
+      "RuntimeBearer": { "type": "http", "scheme": "bearer", "bearerFormat": "opaque" },
+      "RefreshCookie": { "type": "apiKey", "in": "cookie", "name": "codexremote_refresh" }
+    },
     "parameters": {
       "SessionId": { "name": "session_id", "in": "path", "required": true, "schema": { "type": "string" } },
       "RunId": { "name": "run_id", "in": "path", "required": true, "schema": { "type": "string" } },
       "IdempotencyKey": { "name": "Idempotency-Key", "in": "header", "required": true, "schema": { "type": "string", "minLength": 1 } },
       "After": { "name": "after", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 0, "default": 0 } },
       "LastEventId": { "name": "Last-Event-ID", "in": "header", "required": false, "schema": { "type": "integer", "minimum": 0 } }
+      ,"BrowserRequest": { "name": "X-CodexRemote-Request", "in": "header", "required": true, "schema": { "type": "string", "const": "1" } }
     },
     "responses": {
       "NotFound": { "description": "资源不存在", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },
       "Conflict": { "description": "幂等键冲突", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },
       "ServiceUnavailable": { "description": "Runtime 依赖不可用", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } }
+      ,"Unauthorized": { "description": "凭证缺失、无效、过期、撤销或 Refresh 重放", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } }
     },
     "schemas": {
       "LegacyHealth": { "type": "object", "required": ["status"], "properties": { "status": { "type": "string", "const": "ok" } } },
       "Meta": { "type": "object", "required": ["schema_version"], "properties": { "schema_version": { "type": "integer", "const": 1 } } },
       "HealthEnvelope": { "type": "object", "required": ["success", "data", "meta"], "properties": { "success": { "const": true }, "data": { "type": "object", "required": ["status"], "properties": { "status": { "const": "ok" } } }, "meta": { "$ref": "#/components/schemas/Meta" } } },
       "ErrorEnvelope": { "type": "object", "required": ["success", "error", "meta"], "properties": { "success": { "const": false }, "error": { "type": "object", "required": ["code", "message", "retryable"], "properties": { "code": { "type": "string" }, "message": { "type": "string" }, "retryable": { "type": "boolean" } } }, "meta": { "$ref": "#/components/schemas/Meta" } } },
+      "AuthClient": { "type": "object", "required": ["client_id", "name", "scopes", "created_at"], "properties": { "client_id": { "type": "string" }, "name": { "type": "string" }, "scopes": { "type": "array", "items": { "type": "string", "enum": ["runtime:read", "runtime:write", "source:read"] } }, "created_at": { "type": "string", "format": "date-time" } } },
+      "TokenEnvelope": { "type": "object", "required": ["success", "data", "meta"], "properties": { "success": { "const": true }, "data": { "type": "object", "required": ["access_token", "token_type", "expires_in", "access_expires_at", "client"], "properties": { "access_token": { "type": "string" }, "token_type": { "const": "Bearer" }, "expires_in": { "type": "integer" }, "access_expires_at": { "type": "string", "format": "date-time" }, "client": { "$ref": "#/components/schemas/AuthClient" } } }, "meta": { "$ref": "#/components/schemas/Meta" } } },
+      "PrincipalEnvelope": { "type": "object", "required": ["success", "data", "meta"], "properties": { "success": { "const": true }, "data": { "type": "object", "required": ["client_id", "client_name", "scopes"], "properties": { "client_id": { "type": "string" }, "client_name": { "type": "string" }, "scopes": { "type": "array", "items": { "type": "string" } } } }, "meta": { "$ref": "#/components/schemas/Meta" } } },
       "Project": { "type": "object", "required": ["project_id", "display_name"], "properties": { "project_id": { "type": "string" }, "display_name": { "type": "string" } } },
-      "Session": { "type": "object", "required": ["session_id", "project_id", "title", "last_session_sequence", "created_at", "updated_at"], "properties": { "session_id": { "type": "string" }, "project_id": { "type": "string" }, "codex_thread_id": { "type": "string" }, "title": { "type": "string" }, "last_session_sequence": { "type": "integer", "minimum": 0 }, "created_at": { "type": "string", "format": "date-time" }, "updated_at": { "type": "string", "format": "date-time" } } },
+      "SourceSnapshot": { "type": "object", "required": ["project_id", "path", "content", "start_line", "end_line", "total_lines", "truncated", "sha256", "modified_at"], "properties": { "project_id": { "type": "string" }, "path": { "type": "string" }, "content": { "type": "string" }, "start_line": { "type": "integer", "minimum": 1 }, "end_line": { "type": "integer", "minimum": 1 }, "total_lines": { "type": "integer", "minimum": 1 }, "focus_line": { "type": "integer", "minimum": 1 }, "truncated": { "type": "boolean" }, "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "modified_at": { "type": "string", "format": "date-time" } } },
+      "SourceReadRequest": { "type": "object", "additionalProperties": false, "required": ["path"], "properties": { "path": { "type": "string", "maxLength": 4096 }, "line": { "type": "integer", "minimum": 0, "maximum": 10000000 }, "context_lines": { "type": "integer", "minimum": 0, "maximum": 500, "default": 200 } } },
+      "Session": { "type": "object", "required": ["session_id", "project_id", "title", "last_session_sequence", "created_at", "updated_at"], "properties": { "session_id": { "type": "string" }, "project_id": { "type": "string" }, "codex_thread_id": { "type": "string" }, "title": { "type": "string" }, "last_session_sequence": { "type": "integer", "minimum": 0 }, "latest_run_status": { "type": "string", "enum": ["queued", "dispatching", "accepted", "running", "waiting_agent", "recovering", "finalizing", "completed", "failed", "canceled"] }, "created_at": { "type": "string", "format": "date-time" }, "updated_at": { "type": "string", "format": "date-time" } } },
       "RunEvent": { "type": "object", "required": ["agent_sequence", "type", "payload", "occurred_at"], "properties": { "agent_sequence": { "type": "integer", "minimum": 1 }, "type": { "type": "string" }, "payload": { "type": "object", "additionalProperties": true }, "occurred_at": { "type": "string", "format": "date-time" } } },
       "Run": { "type": "object", "required": ["run_id", "session_id", "status", "state_version", "persisted_through_sequence", "created_at", "updated_at"], "properties": { "run_id": { "type": "string" }, "session_id": { "type": "string" }, "codex_turn_id": { "type": "string" }, "status": { "type": "string", "enum": ["queued", "dispatching", "accepted", "running", "waiting_agent", "recovering", "finalizing", "completed", "failed", "canceled"] }, "state_version": { "type": "integer", "minimum": 1 }, "prompt": { "type": "string" }, "cancel_requested_at": { "type": "string", "format": "date-time" }, "persisted_through_sequence": { "type": "integer", "minimum": 0 }, "final_sequence": { "type": "integer", "minimum": 1 }, "error_code": { "type": "string" }, "error_message": { "type": "string" }, "created_at": { "type": "string", "format": "date-time" }, "started_at": { "type": "string", "format": "date-time" }, "finished_at": { "type": "string", "format": "date-time" }, "updated_at": { "type": "string", "format": "date-time" }, "events": { "type": "array", "items": { "$ref": "#/components/schemas/RunEvent" } } } },
-      "SyncJob": { "type": "object", "required": ["sync_id", "status", "last_committed_batch_no", "item_count", "created_at", "updated_at"], "properties": { "sync_id": { "type": "string" }, "status": { "type": "string", "enum": ["queued", "running", "completed", "failed"] }, "snapshot_id": { "type": "string" }, "last_committed_batch_no": { "type": "integer", "minimum": -1 }, "item_count": { "type": "integer", "minimum": 0 }, "error_code": { "type": "string" }, "error_message": { "type": "string" }, "created_at": { "type": "string", "format": "date-time" }, "updated_at": { "type": "string", "format": "date-time" } } },
+      "SyncJob": { "type": "object", "required": ["sync_id", "status", "last_committed_batch_no", "item_count", "total_sessions", "processed_sessions", "archived_sessions", "archived_projects", "reconciliation_applied", "created_at", "updated_at"], "properties": { "sync_id": { "type": "string" }, "status": { "type": "string", "enum": ["queued", "running", "completed", "failed"] }, "snapshot_id": { "type": "string" }, "last_committed_batch_no": { "type": "integer", "minimum": -1 }, "item_count": { "type": "integer", "minimum": 0 }, "total_sessions": { "type": "integer", "minimum": 0 }, "processed_sessions": { "type": "integer", "minimum": 0 }, "archived_sessions": { "type": "integer", "minimum": 0 }, "archived_projects": { "type": "integer", "minimum": 0 }, "reconciliation_applied": { "type": "boolean" }, "error_code": { "type": "string" }, "error_message": { "type": "string" }, "created_at": { "type": "string", "format": "date-time" }, "updated_at": { "type": "string", "format": "date-time" } } },
       "CreateSessionRequest": { "type": "object", "additionalProperties": false, "required": ["project_id", "title"], "properties": { "project_id": { "type": "string" }, "title": { "type": "string" } } },
       "CreateRunRequest": { "type": "object", "additionalProperties": false, "required": ["prompt"], "properties": { "prompt": { "type": "string", "minLength": 1 } } },
       "ProjectListEnvelope": { "type": "object", "required": ["success", "data", "meta"], "properties": { "success": { "const": true }, "data": { "type": "object", "required": ["items", "agent_presence"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Project" } }, "next_cursor": { "type": ["string", "null"] }, "agent_presence": { "type": "string", "enum": ["online", "offline"] }, "agent_last_seen_at": { "type": ["string", "null"], "format": "date-time" } } }, "meta": { "$ref": "#/components/schemas/Meta" } } },
@@ -215,7 +304,8 @@
       "SessionSnapshotEnvelope": { "type": "object", "required": ["success", "data", "meta"], "properties": { "success": { "const": true }, "data": { "type": "object", "required": ["session", "runs", "snapshot_session_sequence", "agent_presence"], "properties": { "session": { "$ref": "#/components/schemas/Session" }, "runs": { "type": "array", "items": { "$ref": "#/components/schemas/Run" } }, "snapshot_session_sequence": { "type": "integer", "minimum": 0 }, "agent_presence": { "type": "string", "enum": ["online", "offline"] }, "agent_last_seen_at": { "type": ["string", "null"], "format": "date-time" } } }, "meta": { "$ref": "#/components/schemas/Meta" } } },
       "CreateRunEnvelope": { "type": "object", "required": ["success", "data", "meta"], "properties": { "success": { "const": true }, "data": { "type": "object", "required": ["run_id", "session_id", "status", "session_sequence", "created_at"], "properties": { "run_id": { "type": "string" }, "session_id": { "type": "string" }, "status": { "const": "queued" }, "session_sequence": { "type": "integer", "minimum": 0 }, "created_at": { "type": "string", "format": "date-time" } } }, "meta": { "$ref": "#/components/schemas/Meta" } } },
       "CancelRunEnvelope": { "type": "object", "required": ["success", "data", "meta"], "properties": { "success": { "const": true }, "data": { "type": "object", "required": ["run_id", "cancel_requested", "status"], "properties": { "run_id": { "type": "string" }, "cancel_requested": { "type": "boolean" }, "status": { "type": "string" } } }, "meta": { "$ref": "#/components/schemas/Meta" } } },
-      "SyncEnvelope": { "type": "object", "required": ["success", "data", "meta"], "properties": { "success": { "const": true }, "data": { "$ref": "#/components/schemas/SyncJob" }, "meta": { "$ref": "#/components/schemas/Meta" } } }
+      "SyncEnvelope": { "type": "object", "required": ["success", "data", "meta"], "properties": { "success": { "const": true }, "data": { "$ref": "#/components/schemas/SyncJob" }, "meta": { "$ref": "#/components/schemas/Meta" } } },
+      "SourceEnvelope": { "type": "object", "required": ["success", "data", "meta"], "properties": { "success": { "const": true }, "data": { "$ref": "#/components/schemas/SourceSnapshot" }, "meta": { "$ref": "#/components/schemas/Meta" } } }
     }
   }
 }

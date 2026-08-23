@@ -36,3 +36,10 @@ func TestFromEnvRejectsInvalidValue(t *testing.T) {
 		t.Fatal("FromEnv() accepted zero queue size")
 	}
 }
+
+func TestAuthControlMustRemainLoopback(t *testing.T) {
+	t.Setenv("AUTH_CONTROL_ADDR", "0.0.0.0:18776")
+	if _, err := FromEnv(); err == nil {
+		t.Fatal("FromEnv() accepted a non-loopback Auth Control listener")
+	}
+}

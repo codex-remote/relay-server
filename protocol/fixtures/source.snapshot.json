@@ -1,0 +1,20 @@
+{
+  "spec_version": "2.0",
+  "message_id": "019fe7db-0100-7000-8000-000000000031",
+  "type": "source.snapshot",
+  "occurred_at": "2026-08-22T09:00:00Z",
+  "trace_id": "source-request-1",
+  "sender": { "kind": "device", "id": "local-mac" },
+  "payload": {
+    "project_id": "project_mobile_web",
+    "path": "src/components/ConversationView.tsx",
+    "content": "function ResultActions() {}",
+    "start_line": 199,
+    "end_line": 199,
+    "total_lines": 420,
+    "focus_line": 199,
+    "truncated": true,
+    "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "modified_at": "2026-08-22T08:59:00Z"
+  }
+}

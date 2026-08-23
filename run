@@ -4,10 +4,11 @@ set -euo pipefail
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
-	echo "Usage: ./run {debug|simulator|iphone}" >&2
+	echo "Usage: ./run {debug|simulator|iphone|mobileweb}" >&2
 	echo "  debug      Manual/Apifox Relay on port 18765" >&2
 	echo "  simulator  iPhone Simulator Relay on port 18767" >&2
 	echo "  iphone     Physical iPhone Relay on port 18768" >&2
+	echo "  mobileweb  Mobile Web Runtime Relay on port 18775" >&2
 }
 
 if [[ "$#" -ne 1 ]]; then
@@ -25,6 +26,9 @@ simulator)
 	;;
 iphone)
 	port="18768"
+	;;
+mobileweb)
+	port="18775"
 	;;
 *)
 	usage
@@ -100,19 +104,53 @@ stop_listeners() {
 	fi
 }
 
+managed_pid=""
 if launchctl print "$service_target" >/dev/null 2>&1; then
+	managed_pid="$(launchctl print "$service_target" 2>/dev/null | awk '/^[[:space:]]*pid = / {print $3; exit}')"
 	echo "Stopping managed Relay service: $service_label"
 	launchctl remove "$service_label" >/dev/null 2>&1 || true
 fi
 stop_listeners
+if [[ "$managed_pid" =~ ^[0-9]+$ ]] && kill -0 "$managed_pid" 2>/dev/null; then
+	for ((attempt = 0; attempt < 50; attempt++)); do
+		kill -0 "$managed_pid" 2>/dev/null || break
+		sleep 0.1
+	done
+	if kill -0 "$managed_pid" 2>/dev/null; then
+		echo "Force stopping managed Relay process still shutting down: $managed_pid"
+		kill -KILL "$managed_pid" 2>/dev/null || true
+	fi
+	for ((attempt = 0; attempt < 50; attempt++)); do
+		kill -0 "$managed_pid" 2>/dev/null || break
+		sleep 0.1
+	done
+	if kill -0 "$managed_pid" 2>/dev/null; then
+		echo "Relay process did not exit after SIGKILL; refusing to reuse launchd label $service_label." >&2
+		exit 1
+	fi
+fi
 make -C "$repo_dir" build
 
 rm -f "$log_file" "$pid_file"
-launchctl submit \
-	-l "$service_label" \
-	-o "$log_file" \
-	-e "$log_file" \
-	-- "$repo_dir/bin/relay" --listen ":$port"
+if [[ "$profile" == "mobileweb" ]]; then
+	launchctl submit \
+		-l "$service_label" \
+		-o "$log_file" \
+		-e "$log_file" \
+		-- /usr/bin/env \
+		"RUNTIME_ALLOWED_ORIGIN=http://127.0.0.1:18774" \
+		"AUTH_ENABLED=true" \
+		"AUTH_COOKIE_SECURE=false" \
+		"$repo_dir/bin/relay" --listen "127.0.0.1:$port"
+else
+	launchctl submit \
+		-l "$service_label" \
+		-o "$log_file" \
+		-e "$log_file" \
+		-- /usr/bin/env \
+		"AUTH_ENABLED=false" \
+		"$repo_dir/bin/relay" --listen ":$port"
+fi
 
 for ((attempt = 0; attempt < 50; attempt++)); do
 	if curl -fsS "http://127.0.0.1:$port/healthz" >/dev/null 2>&1; then
@@ -122,12 +160,14 @@ for ((attempt = 0; attempt < 50; attempt++)); do
 		echo "Relay running: profile=$profile pid=$relay_pid"
 		echo "Local HTTP:         http://127.0.0.1:$port"
 		echo "Local App WS:       ws://127.0.0.1:$port/ws/app"
-		if [[ -n "$lan_ipv4" ]]; then
+		if [[ "$profile" != "mobileweb" && -n "$lan_ipv4" ]]; then
 			echo "LAN HTTP:           http://$lan_ipv4:$port"
 			echo "LAN App WS:         ws://$lan_ipv4:$port/ws/app"
 			echo "LAN Agent WS:       ws://$lan_ipv4:$port/ws/agent"
-		else
+		elif [[ "$profile" != "mobileweb" ]]; then
 			echo "LAN address:        unavailable"
+		else
+			echo "LAN entry:          use Mobile Web Gateway on port 18774"
 		fi
 		echo "Log: $log_file"
 		exit 0

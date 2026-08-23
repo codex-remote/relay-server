@@ -23,6 +23,9 @@ const (
 	TypeThreadSnapshot           = "thread.snapshot"
 	TypeThreadRead               = "thread.read"
 	TypeThreadDetail             = "thread.detail"
+	TypeSourceRead               = "source.read"
+	TypeSourceSnapshot           = "source.snapshot"
+	TypeSourceReadFailed         = "source.read.failed"
 	TypeTurnStart                = "turn.start"
 	TypeTurnStarted              = "turn.started"
 	TypeTurnOutput               = "turn.output"
@@ -89,6 +92,7 @@ type AgentCapabilitiesPayload struct {
 	UserLibraryWrite           bool   `json:"user_library_write"`
 	XcodeDeviceControl         bool   `json:"xcode_device_control"`
 	SupportsPermissionProfiles bool   `json:"supports_permission_profiles"`
+	SupportsSourceRead         bool   `json:"supports_source_read"`
 }
 
 type ExecutionProfileListPayload struct {
@@ -150,6 +154,31 @@ type ThreadDetailPayload struct {
 	ProjectID string       `json:"project_id"`
 	Thread    ThreadDetail `json:"thread"`
 	Truncated bool         `json:"truncated"`
+}
+
+type SourceReadPayload struct {
+	ProjectID    string `json:"project_id"`
+	Path         string `json:"path"`
+	FocusLine    int    `json:"focus_line,omitempty"`
+	ContextLines int    `json:"context_lines,omitempty"`
+}
+
+type SourceSnapshotPayload struct {
+	ProjectID  string    `json:"project_id"`
+	Path       string    `json:"path"`
+	Content    string    `json:"content"`
+	StartLine  int       `json:"start_line"`
+	EndLine    int       `json:"end_line"`
+	TotalLines int       `json:"total_lines"`
+	FocusLine  int       `json:"focus_line,omitempty"`
+	Truncated  bool      `json:"truncated"`
+	SHA256     string    `json:"sha256"`
+	ModifiedAt time.Time `json:"modified_at"`
+}
+
+type SourceReadFailedPayload struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
 type ThreadDetail struct {
@@ -225,14 +254,17 @@ type BootstrapStartPayload struct {
 }
 
 type BootstrapBatchPayload struct {
-	CommandID  string        `json:"command_id"`
-	SyncID     string        `json:"sync_id"`
-	SnapshotID string        `json:"snapshot_id"`
-	BatchNo    int64         `json:"batch_no"`
-	Checksum   string        `json:"checksum"`
-	Project    *Project      `json:"project,omitempty"`
-	Thread     *ThreadDetail `json:"thread,omitempty"`
-	Done       bool          `json:"done"`
+	CommandID          string        `json:"command_id"`
+	SyncID             string        `json:"sync_id"`
+	SnapshotID         string        `json:"snapshot_id"`
+	BatchNo            int64         `json:"batch_no"`
+	Checksum           string        `json:"checksum"`
+	TotalSessions      int64         `json:"total_sessions"`
+	ProcessedSessions  int64         `json:"processed_sessions"`
+	ReconciliationSafe bool          `json:"reconciliation_safe"`
+	Project            *Project      `json:"project,omitempty"`
+	Thread             *ThreadDetail `json:"thread,omitempty"`
+	Done               bool          `json:"done"`
 }
 
 type BootstrapAckPayload struct {
@@ -408,7 +440,7 @@ func AllowedFrom(role, messageType string) bool {
 		}
 	case RoleAgent:
 		switch messageType {
-		case TypeAgentHello, TypeAgentStatus, TypeAgentCapabilities, TypeExecutionProfileSnapshot, TypeProjectSnapshot, TypeThreadSnapshot, TypeThreadDetail, TypeRunAccepted, TypeBootstrapBatch,
+		case TypeAgentHello, TypeAgentStatus, TypeAgentCapabilities, TypeExecutionProfileSnapshot, TypeProjectSnapshot, TypeThreadSnapshot, TypeThreadDetail, TypeSourceSnapshot, TypeSourceReadFailed, TypeRunAccepted, TypeBootstrapBatch,
 			TypeTurnStarted, TypeTurnOutput, TypeTurnItemStarted, TypeTurnItemDelta, TypeTurnItemDone,
 			TypeTurnSnapshot, TypeTurnInterrupted,
 			TypeTurnCompleted, TypeTurnFailed, TypeTurnRejected:

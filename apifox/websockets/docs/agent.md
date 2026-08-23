@@ -2,9 +2,9 @@
 
 ## 用途与方向
 
-`/ws/agent` 是真实 Mac Agent 连接 Relay 的执行端入口。Agent 接收 App 请求，调用本地 Codex App Server，并发送状态、快照和 Turn 事件。
+`/ws/agent` 是真实 Mac Agent 连接 Relay 的执行端入口。Agent 接收 App 请求和 Run Server 内部请求，调用本地 Codex App Server 或受控工作区服务，并发送状态、快照和 Turn 事件。
 
-- 接收方向：App -> Relay -> Mac Agent
+- 接收方向：App/Run Server -> Relay -> Mac Agent
 - 发送方向：Mac Agent -> Relay -> App
 - 帧类型：WebSocket Text
 - 内容格式：UTF-8 JSON Object
@@ -35,6 +35,7 @@ Relay 把 App 请求的 `sender` 规范化为 `{"kind":"user","id":"local-user"}
 | `project.list` | 无 | - | 扫描允许的 Git 项目并调用 Codex `thread/list` 统计会话 |
 | `thread.list` | `project_id: string` | 是 | 将可信项目 ID 解析成本地 `cwd`，调用 Codex `thread/list` |
 | `thread.read` | `project_id: string`, `thread_id: string` | 是 | 校验 Thread 归属后调用 Codex `thread/read(includeTurns: true)` |
+| `source.read` | `project_id: string`, `path: string`; 可选 `focus_line`, `context_lines` | 是 | 仅由 Run Server 内部发送；解析可信项目根目录并读取有界文本源码窗口；`/ws/app` 不允许发送 |
 | `execution.profile.list` | `project_id: string` | 是 | 解析可信项目路径并调用 `permissionProfile/list` |
 | `turn.start` | `project_id: string` | 是 | 解析为本地 `cwd` |
 | `turn.start` | `thread_id: string` | 否 | 省略时 `thread/start`；提供时校验归属并 `thread/resume` |
@@ -42,6 +43,8 @@ Relay 把 App 请求的 `sender` 规范化为 `{"kind":"user","id":"local-user"}
 | `turn.start` | `permission_profile_id: string` | 否 | 重新查询 allowed 后传给 Thread/Turn 的 `permissions` |
 | `turn.interrupt` | `thread_id: string`, `turn_id: string` | 是 | 调用 Codex `turn/interrupt` |
 | `turn.acknowledged` | `turn_id: string`, `status: string` | 是 | 接受 App 终态确认；不启动新 Turn，也不重启 Agent |
+| `bootstrap.start` | `command_id: string`, `sync_id: string` | 是 | 从 Agent SQLite 水位启动或续传异步历史同步 |
+| `bootstrap.durable_ack` | `sync_id: string`, `batch_no: integer`, `checksum: string` | 是 | PostgreSQL 已提交该批次，Agent 才推进本地 durable 水位 |
 
 ### 收到的 project.list
 
@@ -105,6 +108,8 @@ Relay 把 App 请求的 `sender` 规范化为 `{"kind":"user","id":"local-user"}
 | `project.snapshot` | `projects[]` | 响应 `project.list` |
 | `thread.snapshot` | `project_id`, `threads[]` | 响应 `thread.list` |
 | `thread.detail` | `project_id`, `thread`, `truncated` | 响应 `thread.read`；包含持久化 Turns 和结构化 Items |
+| `source.snapshot` | `project_id`, 相对 `path`, `content`, 行范围、`sha256`, `modified_at` | 响应内部 `source.read`；由 Run Server 消费，不转发到 App |
+| `source.read.failed` | `code`, `message` | 源码路径、安全边界、类型或读取失败；由 Run Server 映射为 HTTP 错误 |
 | `turn.started` | `project_id`, `thread_id`, `turn_id`, `started_at` | Codex 已创建 Turn |
 | `turn.output` | `project_id`, `thread_id`, `turn_id`, `stream`, `text` | 兼容旧客户端的流式输出 |
 | `turn.item.started` | 执行 ID、`sequence`, `item` | Codex Item 开始 |
@@ -115,6 +120,9 @@ Relay 把 App 请求的 `sender` 规范化为 `{"kind":"user","id":"local-user"}
 | `turn.completed` | `project_id`, `thread_id`, `turn_id`, `duration_ms`, `summary`, `changed_files[]`, `diff`, `diff_truncated` | 执行和 Git 结果收集成功 |
 | `turn.failed` | 可选执行 ID 和 `duration_ms`; `code`, `message` | Codex、超时或结果收集失败 |
 | `turn.rejected` | `code`, `message`; 可选 `required_capabilities`, `recovery_action`, `execution_context` | 请求 payload 或当前状态不允许执行 |
+| `bootstrap.batch` | `command_id`, `sync_id`, `snapshot_id`, `batch_no`, `checksum`, `total_sessions`, `processed_sessions`, `reconciliation_safe`, 可选 `project`/`thread`, `done` | 逐批上传冻结清单和历史详情；等待 durable ACK 后继续 |
+
+`reconciliation_safe` 只在未从既有 durable 批次水位续传的最终 `done` 批次为 `true`。断线后重新读取的目录可能与已经提交的批次前缀不再属于同一清单，因此续传任务只能幂等导入，不能触发 Project/Session 隐藏；Run Server 会通过 Sync Job 的 `reconciliation_applied=false` 向客户端暴露这一结果。
 
 ### agent.hello
 
@@ -155,7 +163,9 @@ Agent 在初始消息中发送；Relay 会与 Hello、Status 一起缓存，供 
     "can_request_approval": false,
     "host_process_control": false,
     "user_library_write": false,
-    "xcode_device_control": false
+    "xcode_device_control": false,
+    "supports_permission_profiles": true,
+    "supports_source_read": true
   }
 }
 ```

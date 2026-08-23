@@ -12,13 +12,34 @@ AI Coding Remote Relay Server 的重要变更记录在此文件中。
 
 ### Added
 
+- Added an independent PostgreSQL `auth` schema and Runtime Auth module with one-time pairing grants, opaque Access/Refresh Tokens, scope enforcement, transactional Refresh rotation, replay detection, session revocation, and client revocation.
+- Added a loopback-only Auth Control listener on `127.0.0.1:18776` plus `relayctl pair`, `auth-clients`, and `revoke-client` commands.
+- Added the standalone `pairqr` utility with automatic LAN Origin detection, terminal QR rendering, and optional private-permission PNG output.
+- Registered the project-owned `pairqr.sh` launcher with devrun through Auth Control port `18776` and the `crpair` alias, preserving terminal QR output and runtime arguments.
+- Added request ID response headers and public Runtime Auth OpenAPI contracts.
+- Runtime Session catalogs now expose the optional `latest_run_status` compatibility field so clients can render latest-turn state without per-Session snapshot requests.
 - Added PostgreSQL Runtime Core with seven minimal tables, transactional Run creation and command outbox dispatch.
 - Added Redis active Run streams, Session notifications, renewable Agent presence and Runtime HTTPS/SSE endpoints.
 - Added Agent event receipt/durable ACK handling, Bootstrap batch persistence and mobile-web OpenAPI/Apifox contracts.
 - Added explicit `RUNTIME_ALLOWED_ORIGIN=*` support for local and LAN development without per-IP CORS updates.
+- Bootstrap jobs now expose processed/total session progress and archive missing Codex-backed Sessions only after a complete snapshot, keeping Mac deletions out of Runtime client catalogs without destroying Run history.
+- Runtime Project catalogs now use reversible snapshot reconciliation: complete unresumed Bootstrap jobs hide missing Projects, restored Agent snapshots unhide them, active Runs are protected, and reconnect-resumed jobs remain import-only.
+- Added `POST /v1/runtime/projects/{project_id}/source:read` with unified Runtime Auth, bounded in-memory request correlation, Agent disconnect/timeout handling, OpenAPI and v2 source message fixtures; source content is never persisted.
+- Added an isolated `mobileweb` launcher profile on port `18775` with LAN-compatible Runtime CORS for the guarded one-command Mobile Web deployment flow.
+
+### Changed
+
+- The `mobileweb` Run Server profile now listens on `127.0.0.1:18775`; browsers enter through the Mobile Web Gateway instead of connecting directly.
+- Runtime routes now use centralized default-deny Bearer/Scope middleware, including `source:read` for source access.
+- Runtime Auth now plugs into Server composition through a minimal module interface; Runtime path-to-scope policy belongs to Server while Auth remains route-agnostic.
 
 ### Fixed
 
+- Reduced terminal pairing QR output to roughly one quarter of its previous area by using square-proportioned half-block cells and placing the QR last so it remains visible in an 80×24 terminal.
+- Added TTY-aware, `NO_COLOR`-compatible colors for pairing titles, expiration, links, PNG paths, and credential warnings.
+- Kept the bright-white 2×4 Braille renderer as an explicit space-saving mode, while making the white half-block renderer the default because its full-area QR modules scan reliably across terminal fonts; link suppression and indentation controls remain available for embedded deployment output.
+- Bootstrap terminal snapshots now replace stale Run status and event history by Codex Turn ID, advance the Session cursor only for material changes, and ignore nonterminal history instead of treating unknown states as completed.
+- Wait for the exact managed Relay PID to exit before reusing a launchd label, preventing fast restarts from losing the replacement job after the listener closes early during graceful shutdown.
 - Made concurrent idempotent Session/Run creation return one resource without unique-key races.
 - Prevented replayed Agent events from advancing Run state or creating duplicate Session events.
 - Return empty JSON arrays instead of `null` for empty Runtime collections.

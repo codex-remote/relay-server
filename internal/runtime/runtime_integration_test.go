@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -22,7 +23,12 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const runtimeTestPostgresURL = "postgres://codexremote:codexremote@127.0.0.1:54329/codexremote?sslmode=disable"
+var runtimeTestPostgresURL = func() string {
+	if value := strings.TrimSpace(os.Getenv("RUNTIME_TEST_POSTGRES_URL")); value != "" {
+		return value
+	}
+	return "postgres://codexremote:codexremote@127.0.0.1:54329/codexremote?sslmode=disable"
+}()
 
 func TestRuntimePostgresRedisAgentFlow(t *testing.T) {
 	if os.Getenv("RUNTIME_INTEGRATION") != "1" {
@@ -40,12 +46,18 @@ func TestRuntimePostgresRedisAgentFlow(t *testing.T) {
 	}
 	defer broker.Close()
 	projectID := "project_" + protocol.NewID()
+	staleProjectID := "project_" + protocol.NewID()
 	cleanupProjectFixture(t, projectID)
+	cleanupProjectFixture(t, staleProjectID)
 	threadID := "thread_" + protocol.NewID()
 	turnID := "turn_" + protocol.NewID()
 	importedThreadID := "thread_" + protocol.NewID()
 	importedTurnID := "turn_" + protocol.NewID()
-	if err := store.UpsertProjects(ctx, []runtimecore.Project{{ID: projectID, DisplayName: "Integration"}}); err != nil {
+	if err := store.UpsertProjects(ctx, []runtimecore.Project{{ID: projectID, DisplayName: "Integration"}, {ID: staleProjectID, DisplayName: "Removed from Mac"}}); err != nil {
+		t.Fatal(err)
+	}
+	staleProjectSession, _, err := store.CreateSession(ctx, staleProjectID, "Preserved project history", "stale-project-session-key-"+protocol.NewID(), runtimecore.RequestHash(map[string]string{"project_id": staleProjectID}))
+	if err != nil {
 		t.Fatal(err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -92,6 +104,25 @@ func TestRuntimePostgresRedisAgentFlow(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+	listedSessions, err := store.ListSessions(ctx, projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listedSessions) == 0 || listedSessions[0].ID != sessionID || listedSessions[0].LatestRunStatus != "completed" {
+		t.Fatalf("session list latest run status = %#v", listedSessions)
+	}
+	database, err := pgx.Connect(ctx, runtimeTestPostgresURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close(ctx)
+	staleSession, _, err := store.CreateSession(ctx, projectID, "Deleted on Mac", "stale-session-key-"+protocol.NewID(), runtimecore.RequestHash(map[string]string{"project_id": projectID, "title": "Deleted on Mac"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(ctx, `UPDATE runtime.sessions SET codex_thread_id=$2 WHERE session_id=$1`, staleSession.ID, "deleted-thread-"+protocol.NewID()); err != nil {
+		t.Fatal(err)
+	}
 
 	syncResponse := post(t, httpServer.URL+"/v1/runtime/bootstrap-syncs", "sync-key-"+protocol.NewID(), map[string]any{})
 	syncID := nestedString(syncResponse, "data", "sync_id")
@@ -101,6 +132,7 @@ func TestRuntimePostgresRedisAgentFlow(t *testing.T) {
 	now := time.Now().UTC()
 	batch := protocol.BootstrapBatchPayload{
 		CommandID: bootstrapCommand.CommandID, SyncID: syncID, SnapshotID: "snapshot-test", BatchNo: 0, Checksum: "batch-0",
+		TotalSessions: 2, ProcessedSessions: 1,
 		Project: &protocol.Project{ID: projectID, Name: "Integration"},
 		Thread:  &protocol.ThreadDetail{ID: threadID, ProjectID: projectID, Title: "Existing", CreatedAt: now, UpdatedAt: now, Turns: []protocol.ThreadHistoryTurn{{ID: turnID, Status: "completed", StartedAt: &now, CompletedAt: &now, Items: []protocol.ThreadHistoryItem{{ID: "existing-user", Type: "userMessage", Role: "user", Text: "existing"}}}}},
 	}
@@ -110,28 +142,225 @@ func TestRuntimePostgresRedisAgentFlow(t *testing.T) {
 
 	batch = protocol.BootstrapBatchPayload{
 		CommandID: bootstrapCommand.CommandID, SyncID: syncID, SnapshotID: "snapshot-test", BatchNo: 1, Checksum: "batch-1",
+		TotalSessions: 2, ProcessedSessions: 2,
 		Project: &protocol.Project{ID: projectID, Name: "Integration"},
 		Thread:  &protocol.ThreadDetail{ID: importedThreadID, ProjectID: projectID, Title: "Imported", CreatedAt: now, UpdatedAt: now, Turns: []protocol.ThreadHistoryTurn{{ID: importedTurnID, Status: "completed", StartedAt: &now, CompletedAt: &now, Items: []protocol.ThreadHistoryItem{{ID: "user-1", Type: "userMessage", Role: "user", Text: "import me"}, {ID: "assistant-1", Type: "agentMessage", Role: "assistant", Text: "imported"}}}}},
 	}
 	batchMessage, _ = protocol.NewMessage(protocol.TypeBootstrapBatch, syncID, protocol.Sender{Kind: "device", ID: "local-mac"}, batch)
 	writeProtocol(t, agent, batchMessage)
 	readUntil(t, agent, protocol.TypeBootstrapDurableAck)
+	if projects, err := store.ListProjects(ctx); err != nil || !containsProject(projects, staleProjectID) {
+		t.Fatalf("incomplete snapshot hid a project: projects=%#v error=%v", projects, err)
+	}
 	batch.BatchNo = 2
 	batch.Checksum = "batch-2"
 	batch.Project = nil
 	batch.Thread = nil
+	batch.ReconciliationSafe = true
 	batch.Done = true
 	batchMessage, _ = protocol.NewMessage(protocol.TypeBootstrapBatch, syncID, protocol.Sender{Kind: "device", ID: "local-mac"}, batch)
 	writeProtocol(t, agent, batchMessage)
 	readUntil(t, agent, protocol.TypeBootstrapDurableAck)
 
 	job, err := store.GetSyncJob(ctx, syncID)
-	if err != nil || job.Status != "completed" || job.ItemCount != 2 {
+	if err != nil || job.Status != "completed" || job.ItemCount != 2 || job.TotalSessions != 2 || job.ProcessedSessions != 2 || job.ArchivedSessions != 1 || job.ArchivedProjects != 1 || !job.ReconciliationApplied {
 		t.Fatalf("bootstrap not completed: %#v %v", job, err)
+	}
+	if projects, err := store.ListProjects(ctx); err != nil || containsProject(projects, staleProjectID) {
+		t.Fatalf("removed Mac project remains visible: projects=%#v error=%v", projects, err)
+	}
+	if _, err := store.GetSession(ctx, staleProjectSession.ID); !errors.Is(err, runtimecore.ErrNotFound) {
+		t.Fatalf("session under archived project remains visible: %v", err)
+	}
+	if _, err := store.GetSession(ctx, staleSession.ID); !errors.Is(err, runtimecore.ErrNotFound) {
+		t.Fatalf("deleted Mac session remains visible: %v", err)
 	}
 	imported, err := store.GetRun(ctx, "run_"+importedTurnID, true)
 	if err != nil || imported.Status != "completed" || len(imported.Events) != 3 {
 		t.Fatalf("bootstrap run missing: %#v %v", imported, err)
+	}
+	if err := store.UpsertProjects(ctx, []runtimecore.Project{{ID: staleProjectID, DisplayName: "Restored on Mac"}}); err != nil {
+		t.Fatal(err)
+	}
+	if projects, err := store.ListProjects(ctx); err != nil || !containsProject(projects, staleProjectID) {
+		t.Fatalf("restored Mac project remains hidden: projects=%#v error=%v", projects, err)
+	}
+	if _, err := store.GetSession(ctx, staleProjectSession.ID); err != nil {
+		t.Fatalf("preserved session did not return with restored project: %v", err)
+	}
+}
+
+func TestBootstrapCanonicalizesTerminalRunAndIsIdempotent(t *testing.T) {
+	if os.Getenv("RUNTIME_INTEGRATION") != "1" {
+		t.Skip("set RUNTIME_INTEGRATION=1")
+	}
+	ctx := context.Background()
+	store, err := runtimecore.OpenPostgres(ctx, runtimeTestPostgresURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	projectID := "project_" + protocol.NewID()
+	cleanupProjectFixture(t, projectID)
+	if err := store.UpsertProjects(ctx, []runtimecore.Project{{ID: projectID, DisplayName: "Canonical import"}}); err != nil {
+		t.Fatal(err)
+	}
+	session, _, err := store.CreateSession(ctx, projectID, "Existing", "canonical-session-key-"+protocol.NewID(), runtimecore.RequestHash(map[string]string{"project_id": projectID}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, _, _, err := store.CreateRun(ctx, session.ID, "stale prompt", "canonical-run-key-"+protocol.NewID(), runtimecore.RequestHash(map[string]string{"prompt": "stale prompt"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	database, err := pgx.Connect(ctx, runtimeTestPostgresURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close(ctx)
+	threadID := "thread_" + protocol.NewID()
+	turnID := "turn_" + protocol.NewID()
+	when := time.Now().UTC().Truncate(time.Microsecond)
+	if _, err := database.Exec(ctx, `UPDATE runtime.sessions SET codex_thread_id=$2 WHERE session_id=$1`, session.ID, threadID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(ctx, `UPDATE runtime.runs SET codex_turn_id=$2,status='canceled',started_at=$3,finished_at=$3,persisted_through_sequence=1,final_sequence=1 WHERE run_id=$1`, run.ID, turnID, when); err != nil {
+		t.Fatal(err)
+	}
+	interruptedPayload, _ := json.Marshal(map[string]any{"turn_id": turnID, "status": "canceled"})
+	if _, err := database.Exec(ctx, `INSERT INTO runtime.run_events(run_id,agent_sequence,event_type,payload,occurred_at) VALUES($1,1,'turn.interrupted',$2,$3)`, run.ID, interruptedPayload, when); err != nil {
+		t.Fatal(err)
+	}
+
+	job, _, err := store.CreateSyncJob(ctx, "canonical-sync-key-"+protocol.NewID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanupSyncFixture(t, job.ID)
+	itemPayload, _ := json.Marshal(map[string]any{"item": map[string]any{"type": "userMessage", "text": "canonical prompt"}})
+	completedPayload, _ := json.Marshal(map[string]any{"turn_id": turnID, "status": "completed"})
+	batch := runtimecore.BootstrapBatch{
+		SyncID: job.ID, SnapshotID: "canonical-snapshot", BatchNo: 0, Checksum: "canonical-0",
+		Projects: []runtimecore.BootstrapProject{{ID: projectID, Name: "Canonical import"}},
+		Sessions: []runtimecore.BootstrapSession{{ID: "session_" + threadID, ProjectID: projectID, CodexThreadID: threadID, Title: "Existing"}},
+		Runs: []runtimecore.BootstrapRun{
+			{ID: "run_" + turnID, SessionID: "session_" + threadID, CodexTurnID: turnID, Status: "completed", Prompt: "canonical prompt", StartedAt: &when, FinishedAt: &when, Events: []runtimecore.BootstrapEvent{
+				{Sequence: 1, Type: "item.completed", Payload: itemPayload, OccurredAt: when},
+				{Sequence: 2, Type: "turn.completed", Payload: completedPayload, OccurredAt: when},
+			}},
+			{ID: "run_nonterminal_" + turnID, SessionID: "session_" + threadID, CodexTurnID: "nonterminal_" + turnID, Status: "running"},
+		},
+	}
+	if _, err := store.ApplyBootstrapBatch(ctx, batch); err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := store.GetRun(ctx, run.ID, true)
+	if err != nil || canonical.Status != "completed" || canonical.Prompt != "canonical prompt" || len(canonical.Events) != 2 || canonical.Events[1].Type != "turn.completed" {
+		t.Fatalf("run was not canonicalized: %#v error=%v", canonical, err)
+	}
+	if _, err := store.GetRun(ctx, "run_nonterminal_"+turnID, true); !errors.Is(err, runtimecore.ErrNotFound) {
+		t.Fatalf("nonterminal history was imported: %v", err)
+	}
+	afterFirst, err := store.GetSession(ctx, session.ID)
+	if err != nil || afterFirst.LastSessionSequence != 2 {
+		t.Fatalf("canonical change did not advance session once: %#v error=%v", afterFirst, err)
+	}
+
+	batch.BatchNo = 1
+	batch.Checksum = "canonical-1"
+	if _, err := store.ApplyBootstrapBatch(ctx, batch); err != nil {
+		t.Fatal(err)
+	}
+	afterRepeat, err := store.GetSession(ctx, session.ID)
+	if err != nil || afterRepeat.LastSessionSequence != afterFirst.LastSessionSequence {
+		t.Fatalf("identical snapshot advanced session again: before=%d after=%#v error=%v", afterFirst.LastSessionSequence, afterRepeat, err)
+	}
+}
+
+func TestResumedBootstrapDoesNotApplyDestructiveReconciliation(t *testing.T) {
+	if os.Getenv("RUNTIME_INTEGRATION") != "1" {
+		t.Skip("set RUNTIME_INTEGRATION=1")
+	}
+	ctx := context.Background()
+	store, err := runtimecore.OpenPostgres(ctx, runtimeTestPostgresURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	projectID := "project_" + protocol.NewID()
+	cleanupProjectFixture(t, projectID)
+	if err := store.UpsertProjects(ctx, []runtimecore.Project{{ID: projectID, DisplayName: "Disconnect protected"}}); err != nil {
+		t.Fatal(err)
+	}
+	job, _, err := store.CreateSyncJob(ctx, "resumed-sync-key-"+protocol.NewID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanupSyncFixture(t, job.ID)
+	job, err = store.ApplyBootstrapBatch(ctx, runtimecore.BootstrapBatch{
+		SyncID: job.ID, SnapshotID: "resumed-snapshot", BatchNo: 0, Checksum: "resumed-final", Done: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	projects, listErr := store.ListProjects(ctx)
+	if listErr != nil || !containsProject(projects, projectID) || job.ReconciliationApplied || job.ArchivedProjects != 0 {
+		t.Fatalf("resumed snapshot reconciled destructively: job=%#v projects=%#v error=%v", job, projects, listErr)
+	}
+}
+
+func TestBootstrapReconciliationProtectsLiveProjectActivity(t *testing.T) {
+	if os.Getenv("RUNTIME_INTEGRATION") != "1" {
+		t.Skip("set RUNTIME_INTEGRATION=1")
+	}
+	ctx := context.Background()
+	store, err := runtimecore.OpenPostgres(ctx, runtimeTestPostgresURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	staleProjectID := "project_" + protocol.NewID()
+	refreshedProjectID := "project_" + protocol.NewID()
+	activeProjectID := "project_" + protocol.NewID()
+	for _, projectID := range []string{staleProjectID, refreshedProjectID, activeProjectID} {
+		cleanupProjectFixture(t, projectID)
+	}
+	if err := store.UpsertProjects(ctx, []runtimecore.Project{
+		{ID: staleProjectID, DisplayName: "Stale"},
+		{ID: refreshedProjectID, DisplayName: "Refreshed"},
+		{ID: activeProjectID, DisplayName: "Active"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	activeSession, _, err := store.CreateSession(ctx, activeProjectID, "Active", "active-session-key-"+protocol.NewID(), runtimecore.RequestHash(map[string]string{"project_id": activeProjectID}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := store.CreateRun(ctx, activeSession.ID, "keep running", "active-run-key-"+protocol.NewID(), runtimecore.RequestHash(map[string]string{"prompt": "keep running"})); err != nil {
+		t.Fatal(err)
+	}
+	job, _, err := store.CreateSyncJob(ctx, "live-activity-sync-key-"+protocol.NewID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanupSyncFixture(t, job.ID)
+	time.Sleep(time.Millisecond)
+	if err := store.UpsertProjects(ctx, []runtimecore.Project{{ID: refreshedProjectID, DisplayName: "Refreshed during sync"}}); err != nil {
+		t.Fatal(err)
+	}
+	job, err = store.ApplyBootstrapBatch(ctx, runtimecore.BootstrapBatch{
+		SyncID: job.ID, SnapshotID: "live-activity-snapshot", BatchNo: 0, Checksum: "live-activity-final",
+		ReconciliationSafe: true, Done: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	projects, listErr := store.ListProjects(ctx)
+	if listErr != nil || containsProject(projects, staleProjectID) || !containsProject(projects, refreshedProjectID) || !containsProject(projects, activeProjectID) {
+		t.Fatalf("live project protection failed: job=%#v projects=%#v error=%v", job, projects, listErr)
+	}
+	if job.ArchivedProjects != 1 || !job.ReconciliationApplied {
+		t.Fatalf("unexpected reconciliation result: %#v", job)
 	}
 }
 
@@ -423,6 +652,15 @@ func cleanupProjectFixture(t *testing.T, projectID string) {
 			t.Errorf("commit project fixture cleanup %s: %v", projectID, err)
 		}
 	})
+}
+
+func containsProject(projects []runtimecore.Project, projectID string) bool {
+	for _, project := range projects {
+		if project.ID == projectID {
+			return true
+		}
+	}
+	return false
 }
 
 func cleanupSyncFixture(t *testing.T, syncID string) {

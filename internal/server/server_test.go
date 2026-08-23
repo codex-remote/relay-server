@@ -40,6 +40,25 @@ func TestHealthAndStatus(t *testing.T) {
 	}
 }
 
+func TestRuntimeScopePolicyBelongsToServerComposition(t *testing.T) {
+	tests := []struct {
+		method string
+		path   string
+		want   string
+	}{
+		{http.MethodGet, "/v1/runtime/projects", "runtime:read"},
+		{http.MethodHead, "/v1/runtime/projects", "runtime:read"},
+		{http.MethodPost, "/v1/runtime/sessions", "runtime:write"},
+		{http.MethodPost, "/v1/runtime/projects/p1/source:read", "source:read"},
+	}
+	for _, test := range tests {
+		request := httptest.NewRequest(test.method, test.path, nil)
+		if got := runtimeRequiredScope(request); got != test.want {
+			t.Errorf("%s %s scope = %q, want %q", test.method, test.path, got, test.want)
+		}
+	}
+}
+
 func TestCORSUsesExplicitOriginAllowlist(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	relay := New(config.Config{MaxMessageBytes: 256 * 1024, WriteQueueSize: 16, PingInterval: time.Second, AllowedOrigin: "http://127.0.0.1:4173, http://192.168.0.108:4173"}, logger)

@@ -10,6 +10,7 @@ services:
       RUNTIME_DATABASE_URL: "postgres://codexremote:codexremote@postgres:5432/codexremote?sslmode=disable"
       RUNTIME_REDIS_URL: "redis://default:codexremote@redis:6379/0"
       RUNTIME_ALLOWED_ORIGIN: "*"
+      AUTH_ENABLED: "false"
     depends_on:
       postgres:
         condition: service_healthy

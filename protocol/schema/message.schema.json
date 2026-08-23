@@ -30,6 +30,9 @@
         "thread.snapshot",
         "thread.read",
         "thread.detail",
+        "source.read",
+        "source.snapshot",
+        "source.read.failed",
         "turn.start",
         "turn.started",
         "turn.output",
@@ -42,7 +45,10 @@
         "turn.completed",
         "turn.failed",
         "turn.rejected",
-        "turn.acknowledged"
+        "turn.acknowledged",
+        "bootstrap.start",
+        "bootstrap.batch",
+        "bootstrap.durable_ack"
       ]
     },
     "occurred_at": { "type": "string", "format": "date-time" },

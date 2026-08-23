@@ -1,10 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -37,6 +41,12 @@ func realMain(arguments []string) int {
 		return turn(arguments[1:])
 	case "watch":
 		return watch(arguments[1:])
+	case "pair":
+		return pair(arguments[1:])
+	case "auth-clients":
+		return authClients(arguments[1:])
+	case "revoke-client":
+		return revokeClient(arguments[1:])
 	case "help", "--help", "-h":
 		printUsage()
 		return 0
@@ -45,6 +55,127 @@ func realMain(arguments []string) int {
 		printUsage()
 		return 2
 	}
+}
+
+const defaultAuthControlURL = "http://127.0.0.1:18776"
+
+func pair(arguments []string) int {
+	flags := flag.NewFlagSet("pair", flag.ContinueOnError)
+	controlURL := flags.String("control-url", envOrDefault("AUTH_CONTROL_URL", defaultAuthControlURL), "loopback Auth Control URL")
+	origin := flags.String("origin", "", "Mobile Web Gateway origin, for example http://192.168.1.20:18774")
+	name := flags.String("name", "Mobile Web", "client display name")
+	if flags.Parse(arguments) != nil {
+		return 2
+	}
+	parsedOrigin, err := url.Parse(strings.TrimRight(strings.TrimSpace(*origin), "/"))
+	if err != nil || (parsedOrigin.Scheme != "http" && parsedOrigin.Scheme != "https") || parsedOrigin.Host == "" || parsedOrigin.Path != "" || parsedOrigin.RawQuery != "" || parsedOrigin.Fragment != "" {
+		fmt.Fprintln(os.Stderr, "origin must be an explicit http(s) origin without a path")
+		return 2
+	}
+	var response struct {
+		Data struct {
+			Code      string    `json:"code"`
+			ExpiresAt time.Time `json:"expires_at"`
+		} `json:"data"`
+	}
+	if err := controlRequest(http.MethodPost, *controlURL+"/v1/auth-control/pairing-grants", map[string]any{"name": *name}, &response); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	fmt.Printf("%s/pair#code=%s\n", parsedOrigin.String(), url.QueryEscape(response.Data.Code))
+	fmt.Fprintf(os.Stderr, "Pairing link expires at %s\n", response.Data.ExpiresAt.Local().Format(time.RFC3339))
+	return 0
+}
+
+func authClients(arguments []string) int {
+	flags := flag.NewFlagSet("auth-clients", flag.ContinueOnError)
+	controlURL := flags.String("control-url", envOrDefault("AUTH_CONTROL_URL", defaultAuthControlURL), "loopback Auth Control URL")
+	if flags.Parse(arguments) != nil {
+		return 2
+	}
+	var response struct {
+		Data struct {
+			Items []struct {
+				ID        string     `json:"client_id"`
+				Name      string     `json:"name"`
+				LastSeen  *time.Time `json:"last_seen_at"`
+				RevokedAt *time.Time `json:"revoked_at"`
+			} `json:"items"`
+		} `json:"data"`
+	}
+	if err := controlRequest(http.MethodGet, *controlURL+"/v1/auth-control/clients", nil, &response); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	for _, client := range response.Data.Items {
+		state := "active"
+		if client.RevokedAt != nil {
+			state = "revoked"
+		}
+		lastSeen := "never"
+		if client.LastSeen != nil {
+			lastSeen = client.LastSeen.Local().Format(time.RFC3339)
+		}
+		fmt.Printf("%s\t%s\t%s\tlast_seen=%s\n", client.ID, state, client.Name, lastSeen)
+	}
+	return 0
+}
+
+func revokeClient(arguments []string) int {
+	flags := flag.NewFlagSet("revoke-client", flag.ContinueOnError)
+	controlURL := flags.String("control-url", envOrDefault("AUTH_CONTROL_URL", defaultAuthControlURL), "loopback Auth Control URL")
+	clientID := flags.String("client", "", "client ID")
+	if flags.Parse(arguments) != nil {
+		return 2
+	}
+	if strings.TrimSpace(*clientID) == "" {
+		fmt.Fprintln(os.Stderr, "client is required")
+		return 2
+	}
+	endpoint := *controlURL + "/v1/auth-control/clients/" + url.PathEscape(*clientID) + "/revoke"
+	if err := controlRequest(http.MethodPost, endpoint, map[string]any{}, nil); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	fmt.Println("revoked", *clientID)
+	return 0
+}
+
+func controlRequest(method, endpoint string, body any, target any) error {
+	var reader io.Reader
+	if body != nil {
+		data, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		reader = bytes.NewReader(data)
+	}
+	request, err := http.NewRequest(method, endpoint, reader)
+	if err != nil {
+		return err
+	}
+	if body != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	response, err := client.Do(request)
+	if err != nil {
+		return fmt.Errorf("Auth Control request failed: %w", err)
+	}
+	defer response.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(response.Body, 1024*1024))
+	if err != nil {
+		return err
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return fmt.Errorf("Auth Control returned %s: %s", response.Status, strings.TrimSpace(string(data)))
+	}
+	if target != nil && len(data) > 0 {
+		if err := json.Unmarshal(data, target); err != nil {
+			return fmt.Errorf("decode Auth Control response: %w", err)
+		}
+	}
+	return nil
 }
 
 func profiles(arguments []string) int {
@@ -396,6 +527,9 @@ Usage:
   relayctl thread --project PROJECT_ID --thread THREAD_ID
   relayctl turn --project PROJECT_ID [--thread THREAD_ID] [--profile PROFILE_ID] --prompt TEXT
   relayctl watch
+  relayctl pair --origin http://LAN_IP:18774 [--name "My iPhone"]
+  relayctl auth-clients
+  relayctl revoke-client --client CLIENT_ID
 
 Commands:
   projects  List Git projects exposed by the Mac Agent
@@ -403,5 +537,8 @@ Commands:
   threads   List Codex sessions for one project
   thread    Read one Codex thread with its persisted turns and items
   turn      Start a new Codex turn or continue an existing thread
-  watch     Print every Relay event as formatted JSON`)
+  watch          Print every Relay event as formatted JSON
+  pair           Create a short-lived, one-time Mobile Web pairing link
+  auth-clients   List paired Runtime clients through loopback Auth Control
+  revoke-client  Revoke a paired client and all of its sessions`)
 }
