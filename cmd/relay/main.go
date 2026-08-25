@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -82,11 +83,14 @@ func realMain(arguments []string) int {
 		})
 	}
 	relay := server.NewWithRuntimeAndAuth(base, logger, store, broker, authModule)
+	requestContext, cancelRequests := context.WithCancel(context.Background())
+	defer cancelRequests()
 	httpServer := &http.Server{
 		Addr:              base.ListenAddr,
 		Handler:           relay.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
+		BaseContext:       func(net.Listener) context.Context { return requestContext },
 	}
 	var controlServer *http.Server
 	if relay.ControlHandler() != nil {
@@ -121,17 +125,14 @@ func realMain(arguments []string) int {
 		logger.Info("Relay shutting down")
 	}
 
+	cancelRequests()
 	relay.CloseConnections("Relay is shutting down")
-	shutdownContext, cancel := context.WithTimeout(context.Background(), base.ShutdownTimeout)
-	defer cancel()
-	if err := httpServer.Shutdown(shutdownContext); err != nil {
-		logger.Error("Relay shutdown failed", "error", err)
-		return 1
+	if err := httpServer.Close(); err != nil {
+		logger.Warn("Close Relay HTTP server", "error", err)
 	}
 	if controlServer != nil {
-		if err := controlServer.Shutdown(shutdownContext); err != nil {
-			logger.Error("Auth control shutdown failed", "error", err)
-			return 1
+		if err := controlServer.Close(); err != nil {
+			logger.Warn("Close Auth control HTTP server", "error", err)
 		}
 	}
 	return 0

@@ -487,6 +487,34 @@ func (s *PostgresStore) ListRunEvents(ctx context.Context, runID string, after i
 	}
 	return result, rows.Err()
 }
+
+func (s *PostgresStore) ListRunEventsPage(ctx context.Context, runID string, after int64, limit int) ([]RunEvent, bool, error) {
+	if limit < 1 {
+		return nil, false, fmt.Errorf("event page limit must be positive")
+	}
+	rows, err := s.pool.Query(ctx, `SELECT agent_sequence,event_type,payload,occurred_at FROM runtime.run_events WHERE run_id=$1 AND agent_sequence>$2 ORDER BY agent_sequence LIMIT $3`, runID, after, limit+1)
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+	result := make([]RunEvent, 0, limit)
+	for rows.Next() {
+		var item RunEvent
+		if err := rows.Scan(&item.Sequence, &item.Type, &item.Payload, &item.OccurredAt); err != nil {
+			return nil, false, err
+		}
+		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	hasMore := len(result) > limit
+	if hasMore {
+		result = result[:limit]
+	}
+	return result, hasMore, nil
+}
+
 func (s *PostgresStore) ListSessionEvents(ctx context.Context, sessionID string, after int64) ([]SessionEvent, error) {
 	rows, err := s.pool.Query(ctx, `SELECT session_sequence,event_type,payload,created_at FROM runtime.session_events WHERE session_id=$1 AND session_sequence>$2 ORDER BY session_sequence`, sessionID, after)
 	if err != nil {
@@ -502,6 +530,33 @@ func (s *PostgresStore) ListSessionEvents(ctx context.Context, sessionID string,
 		result = append(result, item)
 	}
 	return result, rows.Err()
+}
+
+func (s *PostgresStore) ListSessionEventsPage(ctx context.Context, sessionID string, after int64, limit int) ([]SessionEvent, bool, error) {
+	if limit < 1 {
+		return nil, false, fmt.Errorf("event page limit must be positive")
+	}
+	rows, err := s.pool.Query(ctx, `SELECT session_sequence,event_type,payload,created_at FROM runtime.session_events WHERE session_id=$1 AND session_sequence>$2 ORDER BY session_sequence LIMIT $3`, sessionID, after, limit+1)
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+	result := make([]SessionEvent, 0, limit)
+	for rows.Next() {
+		var item SessionEvent
+		if err := rows.Scan(&item.Sequence, &item.Type, &item.Payload, &item.CreatedAt); err != nil {
+			return nil, false, err
+		}
+		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	hasMore := len(result) > limit
+	if hasMore {
+		result = result[:limit]
+	}
+	return result, hasMore, nil
 }
 
 func (s *PostgresStore) CreateSyncJob(ctx context.Context, key string) (SyncJob, bool, error) {

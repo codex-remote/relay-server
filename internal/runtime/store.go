@@ -30,7 +30,9 @@ type Store interface {
 	ReleaseCommand(context.Context, string, string) error
 	AppendAgentEvent(context.Context, string, int64, string, json.RawMessage, string) (Run, error)
 	ListRunEvents(context.Context, string, int64) ([]RunEvent, error)
+	ListRunEventsPage(context.Context, string, int64, int) ([]RunEvent, bool, error)
 	ListSessionEvents(context.Context, string, int64) ([]SessionEvent, error)
+	ListSessionEventsPage(context.Context, string, int64, int) ([]SessionEvent, bool, error)
 	CreateSyncJob(context.Context, string) (SyncJob, bool, error)
 	GetSyncJob(context.Context, string) (SyncJob, error)
 	ApplyBootstrapBatch(context.Context, BootstrapBatch) (SyncJob, error)

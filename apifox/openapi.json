@@ -3,7 +3,7 @@
   "info": {
     "title": "Codex Remote Run Server",
     "version": "1.0.0",
-    "description": "Mobile Web Gateway 使用的 Run Server HTTPS/SSE 与 Runtime Auth 契约。PostgreSQL 保存 Runtime 与 Auth 权威状态，Redis 仅保存活跃事件流和 Agent presence。所有 Runtime 接口统一要求短期 Opaque Bearer Access Token。"
+    "description": "Mobile Web Gateway 使用的 Run Server HTTPS、SSE、JSON 轮询与 Runtime Auth 契约。PostgreSQL 保存 Runtime 与 Auth 权威状态，Redis 仅保存活跃事件流、通知和 Agent presence。所有 Runtime 接口统一要求短期 Opaque Bearer Access Token。"
   },
   "servers": [
     { "url": "http://127.0.0.1:18765", "description": "本机 Run Server" }
@@ -14,6 +14,7 @@
     { "name": "Runtime" },
     { "name": "Source" },
     { "name": "Runtime SSE" },
+    { "name": "Runtime Poll" },
     { "name": "Bootstrap" }
   ],
   "security": [{ "RuntimeBearer": [] }],
@@ -236,6 +237,48 @@
         "responses": { "200": { "description": "Run 事件流", "content": { "text/event-stream": { "schema": { "type": "string" }, "example": "id: 3\nevent: assistant.delta\ndata: {\"id\":\"3\",\"run_id\":\"run_01\",\"type\":\"assistant.delta\",\"delta\":\"hello\"}\n\n" } } } }
       }
     },
+    "/v1/runtime/sessions/{session_id}/events:poll": {
+      "get": {
+        "operationId": "pollSessionEvents",
+        "summary": "读取 Session JSON 增量事件",
+        "description": "普通 JSON 长轮询；使用 session_sequence 游标。无事件时最多等待 15 秒并返回 timed_out=true。",
+        "tags": ["Runtime Poll"],
+        "parameters": [
+          { "$ref": "#/components/parameters/SessionId" },
+          { "$ref": "#/components/parameters/After" },
+          { "$ref": "#/components/parameters/PollWaitMs" },
+          { "$ref": "#/components/parameters/PollLimit" }
+        ],
+        "responses": {
+          "200": { "description": "Session JSON 事件批次", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PollEnvelope" } } } },
+          "400": { "$ref": "#/components/responses/InvalidRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "503": { "$ref": "#/components/responses/ServiceUnavailable" }
+        }
+      }
+    },
+    "/v1/runtime/runs/{run_id}/events:poll": {
+      "get": {
+        "operationId": "pollRunEvents",
+        "summary": "读取 Run JSON 增量事件",
+        "description": "普通 JSON 长轮询；使用 agent_sequence 游标。无事件时最多等待 15 秒并返回 timed_out=true。",
+        "tags": ["Runtime Poll"],
+        "parameters": [
+          { "$ref": "#/components/parameters/RunId" },
+          { "$ref": "#/components/parameters/After" },
+          { "$ref": "#/components/parameters/PollWaitMs" },
+          { "$ref": "#/components/parameters/PollLimit" }
+        ],
+        "responses": {
+          "200": { "description": "Run JSON 事件批次", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PollEnvelope" } } } },
+          "400": { "$ref": "#/components/responses/InvalidRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "503": { "$ref": "#/components/responses/ServiceUnavailable" }
+        }
+      }
+    },
     "/v1/runtime/bootstrap-syncs": {
       "post": {
         "operationId": "createBootstrapSync",
@@ -270,13 +313,17 @@
       "RunId": { "name": "run_id", "in": "path", "required": true, "schema": { "type": "string" } },
       "IdempotencyKey": { "name": "Idempotency-Key", "in": "header", "required": true, "schema": { "type": "string", "minLength": 1 } },
       "After": { "name": "after", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 0, "default": 0 } },
+      "PollWaitMs": { "name": "wait_ms", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 0, "maximum": 15000, "default": 15000 } },
+      "PollLimit": { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 100 } },
       "LastEventId": { "name": "Last-Event-ID", "in": "header", "required": false, "schema": { "type": "integer", "minimum": 0 } }
       ,"BrowserRequest": { "name": "X-CodexRemote-Request", "in": "header", "required": true, "schema": { "type": "string", "const": "1" } }
     },
     "responses": {
       "NotFound": { "description": "资源不存在", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },
       "Conflict": { "description": "幂等键冲突", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },
-      "ServiceUnavailable": { "description": "Runtime 依赖不可用", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } }
+      "ServiceUnavailable": { "description": "Runtime 依赖不可用", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },
+      "InvalidRequest": { "description": "请求参数无效", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },
+      "RateLimited": { "description": "请求频率或并发受限", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } }
       ,"Unauthorized": { "description": "凭证缺失、无效、过期、撤销或 Refresh 重放", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } }
     },
     "schemas": {
@@ -304,6 +351,9 @@
       "SessionSnapshotEnvelope": { "type": "object", "required": ["success", "data", "meta"], "properties": { "success": { "const": true }, "data": { "type": "object", "required": ["session", "runs", "snapshot_session_sequence", "agent_presence"], "properties": { "session": { "$ref": "#/components/schemas/Session" }, "runs": { "type": "array", "items": { "$ref": "#/components/schemas/Run" } }, "snapshot_session_sequence": { "type": "integer", "minimum": 0 }, "agent_presence": { "type": "string", "enum": ["online", "offline"] }, "agent_last_seen_at": { "type": ["string", "null"], "format": "date-time" } } }, "meta": { "$ref": "#/components/schemas/Meta" } } },
       "CreateRunEnvelope": { "type": "object", "required": ["success", "data", "meta"], "properties": { "success": { "const": true }, "data": { "type": "object", "required": ["run_id", "session_id", "status", "session_sequence", "created_at"], "properties": { "run_id": { "type": "string" }, "session_id": { "type": "string" }, "status": { "const": "queued" }, "session_sequence": { "type": "integer", "minimum": 0 }, "created_at": { "type": "string", "format": "date-time" } } }, "meta": { "$ref": "#/components/schemas/Meta" } } },
       "CancelRunEnvelope": { "type": "object", "required": ["success", "data", "meta"], "properties": { "success": { "const": true }, "data": { "type": "object", "required": ["run_id", "cancel_requested", "status"], "properties": { "run_id": { "type": "string" }, "cancel_requested": { "type": "boolean" }, "status": { "type": "string" } } }, "meta": { "$ref": "#/components/schemas/Meta" } } },
+      "PollEvent": { "type": "object", "required": ["id", "type"], "additionalProperties": true, "properties": { "id": { "type": "string" }, "type": { "type": "string" }, "run_id": { "type": "string" }, "runId": { "type": "string" } } },
+      "PollResult": { "type": "object", "required": ["events", "next_cursor", "has_more", "timed_out", "terminal"], "properties": { "events": { "type": "array", "items": { "$ref": "#/components/schemas/PollEvent" } }, "next_cursor": { "type": "integer", "minimum": 0 }, "has_more": { "type": "boolean" }, "timed_out": { "type": "boolean" }, "terminal": { "type": "boolean" }, "status": { "type": "string" } } },
+      "PollEnvelope": { "type": "object", "required": ["success", "data", "meta"], "properties": { "success": { "const": true }, "data": { "$ref": "#/components/schemas/PollResult" }, "meta": { "$ref": "#/components/schemas/Meta" } } },
       "SyncEnvelope": { "type": "object", "required": ["success", "data", "meta"], "properties": { "success": { "const": true }, "data": { "$ref": "#/components/schemas/SyncJob" }, "meta": { "$ref": "#/components/schemas/Meta" } } },
       "SourceEnvelope": { "type": "object", "required": ["success", "data", "meta"], "properties": { "success": { "const": true }, "data": { "$ref": "#/components/schemas/SourceSnapshot" }, "meta": { "$ref": "#/components/schemas/Meta" } } }
     }

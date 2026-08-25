@@ -113,6 +113,9 @@ func (c *Coordinator) AgentMessage(peer hub.Peer, message protocol.Message) bool
 			c.logger.Error("Persist run event", "run_id", runID, "sequence", message.AgentSequence, "error", err)
 			return true
 		}
+		if notifier, ok := c.broker.(runNotifier); ok {
+			_ = notifier.NotifyRun(c.ctx, runID)
+		}
 		_ = c.broker.NotifySession(c.ctx, run.SessionID)
 		c.sendAck(peer, protocol.TypeRuntimeDurableAck, runID, message.AgentSequence)
 		if message.Type == protocol.TypeRunAccepted {

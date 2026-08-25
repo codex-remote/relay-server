@@ -22,6 +22,15 @@ type Broker interface {
 	Close() error
 }
 
+type pollWaiter interface {
+	WaitForRun(ctx context.Context, runID string) error
+	WaitForSession(ctx context.Context, sessionID string) error
+}
+
+type runNotifier interface {
+	NotifyRun(context.Context, string) error
+}
+
 type RedisBroker struct{ client *redis.Client }
 
 func OpenRedis(ctx context.Context, rawURL string) (*RedisBroker, error) {
@@ -89,8 +98,54 @@ func (b *RedisBroker) ReadRunEvents(ctx context.Context, runID string, after int
 }
 
 func (b *RedisBroker) NotifySession(ctx context.Context, sessionID string) error {
-	return b.client.Publish(ctx, "runtime:notify:session:"+sessionID, "changed").Err()
+	return b.notify(ctx, "session", sessionID)
 }
+
+func (b *RedisBroker) NotifyRun(ctx context.Context, runID string) error {
+	return b.notify(ctx, "run", runID)
+}
+
+func (b *RedisBroker) WaitForRun(ctx context.Context, runID string) error {
+	return b.waitForNotification(ctx, "runtime:notify:run:"+runID)
+}
+
+func (b *RedisBroker) WaitForSession(ctx context.Context, sessionID string) error {
+	return b.waitForNotification(ctx, "runtime:notify:session:"+sessionID)
+}
+
+func (b *RedisBroker) waitForNotification(ctx context.Context, channel string) error {
+	versionKey := channelVersionKey(channel)
+	before, _ := b.client.Get(ctx, versionKey).Result()
+	subscriber := b.client.Subscribe(ctx, channel)
+	defer subscriber.Close()
+	if _, err := subscriber.Receive(ctx); err != nil {
+		return err
+	}
+	after, _ := b.client.Get(ctx, versionKey).Result()
+	if after != before {
+		return nil
+	}
+	messages := subscriber.Channel()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case _, ok := <-messages:
+		if !ok {
+			return errors.New("Redis notification subscription closed")
+		}
+		return nil
+	}
+}
+
+func (b *RedisBroker) notify(ctx context.Context, kind, resourceID string) error {
+	channel := "runtime:notify:" + kind + ":" + resourceID
+	if err := b.client.Set(ctx, channelVersionKey(channel), strconv.FormatInt(time.Now().UnixNano(), 10), time.Hour).Err(); err != nil {
+		return err
+	}
+	return b.client.Publish(ctx, channel, "changed").Err()
+}
+
+func channelVersionKey(channel string) string { return channel + ":version" }
 
 func (b *RedisBroker) SetAgentPresence(ctx context.Context, online bool) error {
 	if !online {

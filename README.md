@@ -29,6 +29,7 @@ Go 实现的 WebSocket Relay 与 Run Server。WebSocket Relay 负责 iPhone/Mac 
 - App 重连时恢复最近的 `agent.hello`、`agent.status` 和 `agent.capabilities`。
 - Ping/Pong、256 KiB 帧限制、有界发送队列和优雅关闭。
 - Runtime v1 Project/Session/Run/Bootstrap HTTP 与 Session/Run SSE。
+- Runtime JSON 增量轮询接口已加入 OpenAPI、Runtime Handler 和 Gateway allowlist；公网限流、Cursor 过期和边缘行为仍待验收，契约见工作区 `Run Server JSON 轮询接口规范`。
 - 一次性配对、短期 Opaque Access Token、HttpOnly Refresh Cookie Rotation 和重放撤销。
 - `pairqr` 可自动生成局域网配对链接和二维码；`relayctl` 还可创建纯文本链接、列出和撤销 Runtime 客户端。
 

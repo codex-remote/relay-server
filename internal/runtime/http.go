@@ -19,6 +19,13 @@ type API struct {
 	source SourceProvider
 }
 
+const (
+	defaultPollWait = 15 * time.Second
+	maxPollWait     = 15 * time.Second
+	defaultPollSize = 100
+	maxPollSize     = 100
+)
+
 func NewAPI(store Store, broker Broker) *API { return &API{store: store, broker: broker} }
 
 func NewAPIWithSource(store Store, broker Broker, source SourceProvider) *API {
@@ -37,7 +44,9 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/runtime/runs/{run_id}", a.run)
 	mux.HandleFunc("POST /v1/runtime/runs/{run_id}/cancel", a.cancel)
 	mux.HandleFunc("GET /v1/runtime/sessions/{session_id}/events", a.sessionEvents)
+	mux.HandleFunc("GET /v1/runtime/sessions/{session_id}/events:poll", a.sessionEventsPoll)
 	mux.HandleFunc("GET /v1/runtime/runs/{run_id}/events", a.runEvents)
+	mux.HandleFunc("GET /v1/runtime/runs/{run_id}/events:poll", a.runEventsPoll)
 	mux.HandleFunc("POST /v1/runtime/bootstrap-syncs", a.createSync)
 	mux.HandleFunc("GET /v1/runtime/bootstrap-syncs/{sync_id}", a.sync)
 }
@@ -294,6 +303,163 @@ func (a *API) runEvents(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type pollResult struct {
+	Events     []json.RawMessage `json:"events"`
+	NextCursor int64             `json:"next_cursor"`
+	HasMore    bool              `json:"has_more"`
+	TimedOut   bool              `json:"timed_out"`
+	Terminal   bool              `json:"terminal"`
+	Status     string            `json:"status,omitempty"`
+}
+
+func (a *API) sessionEventsPoll(w http.ResponseWriter, r *http.Request) {
+	after, wait, limit, ok := parsePollQuery(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "POLL_QUERY_INVALID", false)
+		return
+	}
+	sessionID := r.PathValue("session_id")
+	if _, err := a.store.GetSession(r.Context(), sessionID); errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusNotFound, "SESSION_NOT_FOUND", false)
+		return
+	} else if err != nil {
+		writeInternal(w)
+		return
+	}
+	deadline := time.Now().Add(wait)
+	for {
+		events, hasMore, err := a.store.ListSessionEventsPage(r.Context(), sessionID, after, limit)
+		if err != nil {
+			if r.Context().Err() != nil {
+				return
+			}
+			writeInternal(w)
+			return
+		}
+		if len(events) > 0 {
+			items := make([]json.RawMessage, 0, len(events))
+			for _, event := range events {
+				items = append(items, normalizeSessionRuntimeEvent(sessionID, event))
+			}
+			writeData(w, http.StatusOK, pollResult{Events: items, NextCursor: events[len(events)-1].Sequence, HasMore: hasMore})
+			return
+		}
+		if wait == 0 || time.Now().After(deadline) {
+			writeData(w, http.StatusOK, pollResult{Events: []json.RawMessage{}, NextCursor: after, TimedOut: wait > 0})
+			return
+		}
+		a.waitForPoll(r.Context(), deadline, func(ctx context.Context) error {
+			if waiter, ok := a.broker.(pollWaiter); ok {
+				if err := waiter.WaitForSession(ctx, sessionID); err == nil {
+					return nil
+				}
+			}
+			return waitForPollTimer(ctx)
+		})
+	}
+}
+
+func (a *API) runEventsPoll(w http.ResponseWriter, r *http.Request) {
+	after, wait, limit, ok := parsePollQuery(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "POLL_QUERY_INVALID", false)
+		return
+	}
+	runID := r.PathValue("run_id")
+	deadline := time.Now().Add(wait)
+	for {
+		run, err := a.store.GetRun(r.Context(), runID, false)
+		if errors.Is(err, ErrNotFound) {
+			writeError(w, http.StatusNotFound, "RUN_NOT_FOUND", false)
+			return
+		}
+		if err != nil {
+			if r.Context().Err() != nil {
+				return
+			}
+			writeInternal(w)
+			return
+		}
+		events, hasMore, err := a.store.ListRunEventsPage(r.Context(), runID, after, limit)
+		if err != nil {
+			if r.Context().Err() != nil {
+				return
+			}
+			writeInternal(w)
+			return
+		}
+		if len(events) > 0 {
+			items := make([]json.RawMessage, 0, len(events))
+			for _, event := range events {
+				items = append(items, normalizeRuntimeEvent(runID, event))
+			}
+			writeData(w, http.StatusOK, pollResult{Events: items, NextCursor: events[len(events)-1].Sequence, HasMore: hasMore, Terminal: isTerminal(run.Status), Status: run.Status})
+			return
+		}
+		if isTerminal(run.Status) || wait == 0 || time.Now().After(deadline) {
+			writeData(w, http.StatusOK, pollResult{Events: []json.RawMessage{}, NextCursor: after, TimedOut: wait > 0 && !isTerminal(run.Status), Terminal: isTerminal(run.Status), Status: run.Status})
+			return
+		}
+		a.waitForPoll(r.Context(), deadline, func(ctx context.Context) error {
+			if waiter, ok := a.broker.(pollWaiter); ok {
+				if err := waiter.WaitForRun(ctx, runID); err == nil {
+					return nil
+				}
+			}
+			return waitForPollTimer(ctx)
+		})
+	}
+}
+
+func parsePollQuery(r *http.Request) (int64, time.Duration, int, bool) {
+	after := int64(0)
+	if value := r.URL.Query().Get("after"); value != "" {
+		parsed, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || parsed < 0 {
+			return 0, 0, 0, false
+		}
+		after = parsed
+	}
+	wait := defaultPollWait
+	if value := r.URL.Query().Get("wait_ms"); value != "" {
+		parsed, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || parsed < 0 || parsed > maxPollWait.Milliseconds() {
+			return 0, 0, 0, false
+		}
+		wait = time.Duration(parsed) * time.Millisecond
+	}
+	limit := defaultPollSize
+	if value := r.URL.Query().Get("limit"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 1 || parsed > maxPollSize {
+			return 0, 0, 0, false
+		}
+		limit = parsed
+	}
+	return after, wait, limit, true
+}
+
+func (a *API) waitForPoll(ctx context.Context, deadline time.Time, wait func(context.Context) error) {
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return
+	}
+	waitContext, cancel := context.WithTimeout(ctx, remaining)
+	defer cancel()
+	_ = wait(waitContext)
+}
+
+func waitForPollTimer(ctx context.Context) error {
+	timer := time.NewTimer(500 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 type sseEvent struct {
 	ID   int64
 	Type string
@@ -365,6 +531,21 @@ func normalizeRuntimeEvent(runID string, event RunEvent) json.RawMessage {
 		if text, ok := fields["text"]; ok {
 			fields["delta"] = text
 		}
+	}
+	data, _ := json.Marshal(fields)
+	return data
+}
+
+func normalizeSessionRuntimeEvent(sessionID string, event SessionEvent) json.RawMessage {
+	var fields map[string]any
+	if json.Unmarshal(event.Payload, &fields) != nil {
+		fields = map[string]any{"payload": event.Payload}
+	}
+	fields["id"] = strconv.FormatInt(event.Sequence, 10)
+	fields["type"] = event.Type
+	fields["session_id"] = sessionID
+	if runID, ok := fields["run_id"].(string); ok && runID != "" {
+		fields["runId"] = runID
 	}
 	data, _ := json.Marshal(fields)
 	return data

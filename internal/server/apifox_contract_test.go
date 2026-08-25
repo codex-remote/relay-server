@@ -59,6 +59,14 @@ func TestApifoxContractMatchesRelayRoutes(t *testing.T) {
 			t.Fatalf("Apifox OpenAPI is missing %s %s", strings.ToUpper(method), path)
 		}
 	}
+	for path := range map[string]struct{}{
+		"/v1/runtime/sessions/{session_id}/events:poll": {},
+		"/v1/runtime/runs/{run_id}/events:poll":         {},
+	} {
+		if _, ok := document.Paths[path]["get"]; !ok {
+			t.Fatalf("Apifox OpenAPI is missing GET %s", path)
+		}
+	}
 	sourcePath := "/v1/runtime/projects/{project_id}/source:read"
 	sourceOperation, ok := document.Paths[sourcePath]["post"]
 	if !ok {

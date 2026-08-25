@@ -3,9 +3,10 @@
 This directory is the language-neutral contract source for AI Coding Remote MVP.
 
 - `schema/message.schema.json` defines the `2.0` envelope and message names.
-- `fixtures/` contains Agent capability, Project/Thread/Turn, project-scoped source read, and resumable Bootstrap messages, including determinate session progress in `bootstrap.batch`, for cross-client contract tests.
+- `fixtures/` contains Agent capability, Project/Thread/Turn, project-scoped source read, and resumable Bootstrap messages, including determinate session progress in `bootstrap.batch`, for WebSocket protocol tests. HTTP Runtime JSON polling response examples live under `apifox/fixtures/`.
 - `source-read.md` defines the authenticated HTTP to ephemeral Agent source-read bridge and its filesystem safety rules.
 - `execution-permissions.md` defines project-scoped permission profile discovery, selection, validation, and Thread/Turn forwarding.
+- `runtime-polling.md` records the implemented JSON polling transport constraints; production rate limiting, cursor expiry and edge validation remain pending.
 - `2.0` is the only accepted version; removed `1.0 run.*` messages are not translated.
 
 Relay validates the envelope and message direction. Mac Agent and iPhone validate payloads they consume. Breaking pre-release changes require an explicit protocol major-version update across all three repositories.

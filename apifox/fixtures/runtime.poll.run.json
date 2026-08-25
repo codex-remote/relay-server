@@ -1,0 +1,27 @@
+{
+  "success": true,
+  "data": {
+    "events": [
+      {
+        "id": "4",
+        "type": "assistant.delta",
+        "run_id": "run_01",
+        "runId": "run_01",
+        "delta": "hello"
+      },
+      {
+        "id": "5",
+        "type": "turn.completed",
+        "run_id": "run_01",
+        "runId": "run_01",
+        "message": "done"
+      }
+    ],
+    "next_cursor": 5,
+    "has_more": false,
+    "timed_out": false,
+    "terminal": true,
+    "status": "completed"
+  },
+  "meta": { "schema_version": 1 }
+}

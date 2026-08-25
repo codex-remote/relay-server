@@ -1,0 +1,20 @@
+{
+  "success": true,
+  "data": {
+    "events": [
+      {
+        "id": "7",
+        "type": "run.created",
+        "session_id": "session_01",
+        "run_id": "run_01",
+        "runId": "run_01",
+        "status": "queued"
+      }
+    ],
+    "next_cursor": 7,
+    "has_more": false,
+    "timed_out": false,
+    "terminal": false
+  },
+  "meta": { "schema_version": 1 }
+}
