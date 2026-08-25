@@ -66,7 +66,7 @@ Relay 负责生产标准 JSONL 服务日志，未来由本地 Diagnostics Collec
 ./run mobileweb
 ```
 
-`debug` 固定使用 `18765`；`simulator` 使用 `18767`；`iphone` 使用 `18768`。这三个旧 WebSocket profile 显式关闭 Runtime Auth Control。`mobileweb` 使用 Loopback `127.0.0.1:18775`，独占 Auth Control `18776`，由 Mobile Web Gateway `18774` 对局域网提供唯一入口。四个 profile 使用独立的 `launchctl` 服务、PID、日志和重启锁。
+`debug` 固定使用 `18765`；`simulator` 使用 `18767`；`iphone` 使用 `18768`。这三个旧 WebSocket profile 显式关闭 Runtime Auth Control。`mobileweb` 使用 Loopback `127.0.0.1:18775`、Auth Control `127.0.0.1:18776` 和 Gateway `18774`，保留给 Homebrew Runtime/发布兼容链路；`mobileweb-debug` 使用 Loopback `127.0.0.1:18875`、Auth Control `127.0.0.1:18876` 和本地 Gateway `18874`，供源码工作区的 `devrun crweb`。五个 profile 使用独立的 `launchctl` 服务、PID、日志和重启锁。
 
 ```bash
 curl http://127.0.0.1:18765/healthz

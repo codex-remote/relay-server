@@ -4,11 +4,12 @@ set -euo pipefail
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
-	echo "Usage: ./run {debug|simulator|iphone|mobileweb}" >&2
+	echo "Usage: ./run {debug|simulator|iphone|mobileweb|mobileweb-debug}" >&2
 	echo "  debug      Manual/Apifox Relay on port 18765" >&2
 	echo "  simulator  iPhone Simulator Relay on port 18767" >&2
 	echo "  iphone     Physical iPhone Relay on port 18768" >&2
 	echo "  mobileweb  Mobile Web Runtime Relay on port 18775" >&2
+	echo "  mobileweb-debug  Local Mobile Web debug Relay on port 18875" >&2
 }
 
 if [[ "$#" -ne 1 ]]; then
@@ -29,6 +30,9 @@ iphone)
 	;;
 mobileweb)
 	port="18775"
+	;;
+mobileweb-debug)
+	port="18875"
 	;;
 *)
 	usage
@@ -132,13 +136,21 @@ fi
 make -C "$repo_dir" build
 
 rm -f "$log_file" "$pid_file"
-if [[ "$profile" == "mobileweb" ]]; then
+if [[ "$profile" == "mobileweb" || "$profile" == "mobileweb-debug" ]]; then
+	if [[ "$profile" == "mobileweb-debug" ]]; then
+		gateway_port="18874"
+		auth_control_port="18876"
+	else
+		gateway_port="18774"
+		auth_control_port="18776"
+	fi
 	launchctl submit \
 		-l "$service_label" \
 		-o "$log_file" \
 		-e "$log_file" \
 		-- /usr/bin/env \
-		"RUNTIME_ALLOWED_ORIGIN=http://127.0.0.1:18774" \
+		"RUNTIME_ALLOWED_ORIGIN=http://127.0.0.1:$gateway_port" \
+		"AUTH_CONTROL_ADDR=127.0.0.1:$auth_control_port" \
 		"AUTH_ENABLED=true" \
 		"AUTH_COOKIE_SECURE=false" \
 		"$repo_dir/bin/relay" --listen "127.0.0.1:$port"
@@ -160,14 +172,18 @@ for ((attempt = 0; attempt < 50; attempt++)); do
 		echo "Relay running: profile=$profile pid=$relay_pid"
 		echo "Local HTTP:         http://127.0.0.1:$port"
 		echo "Local App WS:       ws://127.0.0.1:$port/ws/app"
-		if [[ "$profile" != "mobileweb" && -n "$lan_ipv4" ]]; then
+		if [[ "$profile" != "mobileweb" && "$profile" != "mobileweb-debug" && -n "$lan_ipv4" ]]; then
 			echo "LAN HTTP:           http://$lan_ipv4:$port"
 			echo "LAN App WS:         ws://$lan_ipv4:$port/ws/app"
 			echo "LAN Agent WS:       ws://$lan_ipv4:$port/ws/agent"
-		elif [[ "$profile" != "mobileweb" ]]; then
+		elif [[ "$profile" != "mobileweb" && "$profile" != "mobileweb-debug" ]]; then
 			echo "LAN address:        unavailable"
 		else
-			echo "LAN entry:          use Mobile Web Gateway on port 18774"
+			if [[ "$profile" == "mobileweb-debug" ]]; then
+				echo "LAN entry:          use local Mobile Web Gateway on port 18874"
+			else
+				echo "LAN entry:          use Mobile Web Gateway on port 18774"
+			fi
 		fi
 		echo "Log: $log_file"
 		exit 0

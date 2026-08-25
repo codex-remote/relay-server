@@ -26,6 +26,7 @@ AI Coding Remote Relay Server 的重要变更记录在此文件中。
 - Runtime Project catalogs now use reversible snapshot reconciliation: complete unresumed Bootstrap jobs hide missing Projects, restored Agent snapshots unhide them, active Runs are protected, and reconnect-resumed jobs remain import-only.
 - Added `POST /v1/runtime/projects/{project_id}/source:read` with unified Runtime Auth, bounded in-memory request correlation, Agent disconnect/timeout handling, OpenAPI and v2 source message fixtures; source content is never persisted.
 - Added an isolated `mobileweb` launcher profile on port `18775` with LAN-compatible Runtime CORS for the guarded one-command Mobile Web deployment flow.
+- Added a `mobileweb-debug` launcher profile on `18875` with Auth Control on `18876`, keeping the Homebrew/release `mobileweb` profile on `18775/18776`.
 
 ### Changed
 

@@ -49,8 +49,9 @@ case "${1:-}" in
 		;;
 esac
 
-if ! curl -fsS --max-time 3 http://127.0.0.1:18774/gateway/healthz >/dev/null 2>&1; then
-	printf 'Mobile Web Gateway is unavailable. Run devrun crweb first.\n' >&2
+gateway_port="${CODEX_REMOTE_GATEWAY_PORT:-18774}"
+if ! curl -fsS --max-time 3 "http://127.0.0.1:${gateway_port}/gateway/healthz" >/dev/null 2>&1; then
+	printf 'Mobile Web Gateway is unavailable on port %s. Run devrun crweb first.\n' "${gateway_port}" >&2
 	exit 1
 fi
 
