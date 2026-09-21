@@ -8,7 +8,7 @@ Go 实现的 WebSocket Relay 与 Run Server。WebSocket Relay 负责 iPhone/Mac 
 
 | 层 | 选择 |
 | --- | --- |
-| 语言 | Go 1.23+ |
+| 语言 | Go 1.25+ |
 | HTTP | `net/http` |
 | WebSocket | `github.com/coder/websocket` |
 | 状态 | PostgreSQL `runtime/auth` + Redis 活跃流 + 进程内 Connection Registry |

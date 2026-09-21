@@ -32,6 +32,7 @@ Codex Remote Relay Server 的重要变更记录在此文件中。
 
 ### Changed
 
+- Raised the Go baseline to 1.25 and upgraded `pgx/v5` and `x/crypto` to patched releases before public source publication.
 - The `mobileweb` Run Server profile now listens on `127.0.0.1:18775`; browsers enter through the Mobile Web Gateway instead of connecting directly.
 - Runtime routes now use centralized default-deny Bearer/Scope middleware, including `source:read` for source access.
 - Runtime Auth now plugs into Server composition through a minimal module interface; Runtime path-to-scope policy belongs to Server while Auth remains route-agnostic.
