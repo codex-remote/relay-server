@@ -10,10 +10,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ai-coding-remote/relay-server/internal/hub"
-	"github.com/ai-coding-remote/relay-server/internal/protocol"
-	"github.com/ai-coding-remote/relay-server/internal/router"
 	ws "github.com/coder/websocket"
+	"github.com/codex-remote/relay-server/internal/hub"
+	"github.com/codex-remote/relay-server/internal/protocol"
+	"github.com/codex-remote/relay-server/internal/router"
 )
 
 type Config struct {

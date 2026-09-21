@@ -1,6 +1,8 @@
-# AI Coding Remote - Relay Server
+# Codex Remote - Relay Server
 
 Go 实现的 WebSocket Relay 与 Run Server。WebSocket Relay 负责 iPhone/Mac Agent 实时通信；Run Server 负责 Mobile Web 的 Runtime HTTP/SSE、PostgreSQL 权威状态和 Redis 活跃事件。Runtime Auth 通过独立包、`auth` Schema 和 `RuntimeAuthModule` 接入。它们共用当前二进制，但代码、路由和数据边界分离；这里的 Relay 不应与 `mobile-web` 仓库的 Mobile Web Gateway 混称。
+
+> Codex Remote 是独立开源项目，与 OpenAI 没有关联或背书关系。
 
 ## 技术栈
 
@@ -105,7 +107,7 @@ devrun crpair --output .run/mobileweb/pairing.png
 
 ## 局域网联调
 
-假设 Relay 所在 Mac IP 是 `192.168.68.125`。
+假设 Relay 所在 Mac IP 是 `192.168.1.20`。
 
 启动 Mac Agent，根目录下可以包含多个 Git 项目：
 
@@ -114,23 +116,23 @@ cd ../mac-agent
 make build
 
 ./bin/mac-agent serve \
-  --relay-url ws://192.168.68.125:18765/ws/agent \
-  --workspace-root /Users/leehooo/work/selftools/codexremote \
-  --name leehoo-mac
+  --relay-url ws://192.168.1.20:18765/ws/agent \
+  --workspace-root /Users/developer/work/codexremote \
+  --name developer-mac
 ```
 
 列出项目：
 
 ```bash
 cd ../relay-server
-./bin/relayctl projects --url ws://192.168.68.125:18765/ws/app
+./bin/relayctl projects --url ws://192.168.1.20:18765/ws/app
 ```
 
 查询某项目的 Codex 会话：
 
 ```bash
 ./bin/relayctl threads \
-  --url ws://192.168.68.125:18765/ws/app \
+  --url ws://192.168.1.20:18765/ws/app \
   --project project_xxx
 ```
 
@@ -138,7 +140,7 @@ cd ../relay-server
 
 ```bash
 ./bin/relayctl profiles \
-  --url ws://192.168.68.125:18765/ws/app \
+  --url ws://192.168.1.20:18765/ws/app \
   --project project_xxx
 ```
 
@@ -146,7 +148,7 @@ cd ../relay-server
 
 ```bash
 ./bin/relayctl thread \
-  --url ws://192.168.68.125:18765/ws/app \
+  --url ws://192.168.1.20:18765/ws/app \
   --project project_xxx \
   --thread thread_xxx
 ```
@@ -155,7 +157,7 @@ cd ../relay-server
 
 ```bash
 ./bin/relayctl turn \
-  --url ws://192.168.68.125:18765/ws/app \
+  --url ws://192.168.1.20:18765/ws/app \
   --project project_xxx \
   --profile :workspace \
   --prompt "检查当前修改并运行相关测试，不要提交代码"
@@ -166,7 +168,7 @@ cd ../relay-server
 观察原始事件：
 
 ```bash
-./bin/relayctl watch --url ws://192.168.68.125:18765/ws/app
+./bin/relayctl watch --url ws://192.168.1.20:18765/ws/app
 ```
 
 ## Apifox
@@ -219,8 +221,8 @@ docker compose up --build
 或：
 
 ```bash
-docker build -t ai-coding-remote-relay .
-docker run --rm -p 18765:18765 ai-coding-remote-relay
+docker build -t codex-remote-relay .
+docker run --rm -p 18765:18765 codex-remote-relay
 ```
 
 未来线上部署仍建议由 Caddy、Nginx、Traefik 或云负载均衡终止 TLS/WSS。完成鉴权和设备身份前，不开放 `/ws/app` 与 `/ws/agent` 到公网。
@@ -268,3 +270,9 @@ apifox/          HTTP/WebSocket 同步源
 ```
 
 Runtime Auth 已在 HTTP 中间件实现。Auth 包不识别 Runtime URL；Server 组装层提供所需 Scope，并通过最小 `RuntimeAuthModule` 接口挂载公开 API、保护中间件和 Control Handler。Auth Control `18776` 是同一 Relay 进程内的 Loopback Listener，不是可独立部署的微服务。旧 App/Agent WebSocket 的设备身份仍是后续独立工作。用户管理、后台查询、诊断任务和日志存储由 Admin Platform 提供，不作为 Runtime Auth 表的扩展方向。
+
+## 开源许可
+
+本仓库采用 [Apache License 2.0](LICENSE)。贡献前请阅读组织级
+[贡献指南](https://github.com/codex-remote/.github/blob/main/CONTRIBUTING.md)；
+版权与项目名称说明见 [NOTICE](NOTICE)。

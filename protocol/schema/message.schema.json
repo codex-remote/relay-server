@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ai-coding-remote.local/protocol/v2/message.schema.json",
-  "title": "AI Coding Remote Message v2",
+  "$id": "https://codex-remote.local/protocol/v2/message.schema.json",
+  "title": "Codex Remote Message v2",
   "type": "object",
   "additionalProperties": true,
   "required": [

@@ -6,13 +6,13 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/ai-coding-remote/relay-server/internal/auth"
-	"github.com/ai-coding-remote/relay-server/internal/config"
-	"github.com/ai-coding-remote/relay-server/internal/hub"
-	"github.com/ai-coding-remote/relay-server/internal/protocol"
-	"github.com/ai-coding-remote/relay-server/internal/router"
-	runtimecore "github.com/ai-coding-remote/relay-server/internal/runtime"
-	websockettransport "github.com/ai-coding-remote/relay-server/internal/websocket"
+	"github.com/codex-remote/relay-server/internal/auth"
+	"github.com/codex-remote/relay-server/internal/config"
+	"github.com/codex-remote/relay-server/internal/hub"
+	"github.com/codex-remote/relay-server/internal/protocol"
+	"github.com/codex-remote/relay-server/internal/router"
+	runtimecore "github.com/codex-remote/relay-server/internal/runtime"
+	websockettransport "github.com/codex-remote/relay-server/internal/websocket"
 )
 
 type Server struct {

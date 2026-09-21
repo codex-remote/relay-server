@@ -15,8 +15,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ai-coding-remote/relay-server/internal/protocol"
 	"github.com/coder/websocket"
+	"github.com/codex-remote/relay-server/internal/protocol"
 )
 
 const defaultAppURL = "ws://127.0.0.1:18765/ws/app"
@@ -518,7 +518,7 @@ func envOrDefault(name, fallback string) string {
 }
 
 func printUsage() {
-	fmt.Fprintln(os.Stderr, `AI Coding Remote Relay control client
+	fmt.Fprintln(os.Stderr, `Codex Remote Relay control client
 
 Usage:
   relayctl projects [--url ws://HOST:18765/ws/app]

@@ -3,8 +3,8 @@ package router
 import (
 	"log/slog"
 
-	"github.com/ai-coding-remote/relay-server/internal/hub"
-	"github.com/ai-coding-remote/relay-server/internal/protocol"
+	"github.com/codex-remote/relay-server/internal/hub"
+	"github.com/codex-remote/relay-server/internal/protocol"
 )
 
 type Router struct {

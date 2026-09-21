@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/ai-coding-remote/relay-server/internal/hub"
-	"github.com/ai-coding-remote/relay-server/internal/protocol"
+	"github.com/codex-remote/relay-server/internal/hub"
+	"github.com/codex-remote/relay-server/internal/protocol"
 )
 
 type testPeer struct {

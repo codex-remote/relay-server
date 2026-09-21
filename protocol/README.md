@@ -1,6 +1,6 @@
 # Protocol v2
 
-This directory is the language-neutral contract source for AI Coding Remote MVP.
+This directory is the language-neutral contract source for Codex Remote.
 
 - `schema/message.schema.json` defines the `2.0` envelope and message names.
 - `fixtures/` contains Agent capability, Project/Thread/Turn, project-scoped source read, and resumable Bootstrap messages, including determinate session progress in `bootstrap.batch`, for WebSocket protocol tests. HTTP Runtime JSON polling response examples live under `apifox/fixtures/`.

@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Start Runtime data services
+        run: docker compose up -d --wait postgres redis
+      - run: go test ./...
+      - run: go vet ./...
+      - run: bash -n run pairqr.sh scripts/*.sh
+      - name: Stop Runtime data services
+        if: always()
+        run: docker compose down

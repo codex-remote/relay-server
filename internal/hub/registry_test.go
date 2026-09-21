@@ -3,7 +3,7 @@ package hub
 import (
 	"testing"
 
-	"github.com/ai-coding-remote/relay-server/internal/protocol"
+	"github.com/codex-remote/relay-server/internal/protocol"
 )
 
 type fakePeer struct {

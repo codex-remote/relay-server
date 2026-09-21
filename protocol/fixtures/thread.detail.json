@@ -36,7 +36,7 @@
               "type": "commandExecution",
               "status": "completed",
               "command": "go test ./...",
-              "cwd": "/Users/leehooo/work/example",
+              "cwd": "/Users/developer/work/example",
               "output": "ok example/internal/login",
               "exit_code": 0,
               "duration_ms": 1432,

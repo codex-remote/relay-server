@@ -5,7 +5,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/ai-coding-remote/relay-server/internal/protocol"
+	"github.com/codex-remote/relay-server/internal/protocol"
 )
 
 var (

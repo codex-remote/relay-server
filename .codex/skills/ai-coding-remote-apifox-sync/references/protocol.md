@@ -24,7 +24,7 @@ The authoritative Apifox sent/received Body contracts are `apifox/websockets/doc
 ## Manual test
 
 1. Run `./run debug` to restart the manual-debug Relay on fixed port `18765`.
-2. Start the real Mac Agent. It scans `/Users/leehooo/work` by default; `--workspace-root` overrides that root.
+2. Start the real Mac Agent. It allows the current user's `~/work` by default; `--workspace-root` overrides that root.
 3. Select the local or current LAN Relay environment. The WebSocket resources use relative paths and inherit that environment's pre-URL.
 4. Open `iPhone App 控制通道` in Apifox Desktop and connect.
 5. Confirm `agent.hello`, `agent.status`, and `agent.capabilities`.

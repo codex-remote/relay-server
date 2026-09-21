@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ai-coding-remote/relay-server/internal/protocol"
+	"github.com/codex-remote/relay-server/internal/protocol"
 )
 
 func TestBootstrapBatchImportsOnlyTerminalTurns(t *testing.T) {

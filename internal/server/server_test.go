@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ai-coding-remote/relay-server/internal/config"
-	"github.com/ai-coding-remote/relay-server/internal/protocol"
 	"github.com/coder/websocket"
+	"github.com/codex-remote/relay-server/internal/config"
+	"github.com/codex-remote/relay-server/internal/protocol"
 )
 
 func testServer(t *testing.T) (*httptest.Server, string) {

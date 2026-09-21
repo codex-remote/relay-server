@@ -1,4 +1,4 @@
-module github.com/ai-coding-remote/relay-server
+module github.com/codex-remote/relay-server
 
 go 1.23.0
 

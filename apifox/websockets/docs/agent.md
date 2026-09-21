@@ -189,7 +189,7 @@ Agent 在初始消息中发送；Relay 会与 Hello、Status 一起缓存，供 
       {
         "id": "project_9e8638437f803c29d91a3844",
         "name": "relay-server",
-        "path": "/Users/leehooo/work/selftools/codexremote/relay-server",
+        "path": "/Users/developer/work/codexremote/relay-server",
         "thread_count": 1,
         "updated_at": "2026-08-10T02:52:30Z"
       }
@@ -218,7 +218,7 @@ Agent 在初始消息中发送；Relay 会与 Hello、Status 一起缓存，供 
         "project_id": "project_9e8638437f803c29d91a3844",
         "title": "只读检查这个项目",
         "preview": "请仅回答 Go module 路径",
-        "latest_message_preview": "Go module 路径是 github.com/ai-coding-remote/relay-server。",
+        "latest_message_preview": "Go module 路径是 github.com/codex-remote/relay-server。",
         "status": "notLoaded",
         "source": "vscode",
         "updated_at": "2026-08-10T02:52:30Z"

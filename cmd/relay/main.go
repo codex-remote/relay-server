@@ -14,10 +14,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ai-coding-remote/relay-server/internal/auth"
-	"github.com/ai-coding-remote/relay-server/internal/config"
-	runtimecore "github.com/ai-coding-remote/relay-server/internal/runtime"
-	"github.com/ai-coding-remote/relay-server/internal/server"
+	"github.com/codex-remote/relay-server/internal/auth"
+	"github.com/codex-remote/relay-server/internal/config"
+	runtimecore "github.com/codex-remote/relay-server/internal/runtime"
+	"github.com/codex-remote/relay-server/internal/server"
 )
 
 var version = "0.0.1"

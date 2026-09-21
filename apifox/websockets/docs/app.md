@@ -214,7 +214,7 @@ App 应在收到声明 `supports_permission_profiles=true` 的 `agent.capabiliti
       {
         "id": "project_9e8638437f803c29d91a3844",
         "name": "relay-server",
-        "path": "/Users/leehooo/work/selftools/codexremote/relay-server",
+        "path": "/Users/developer/work/codexremote/relay-server",
         "thread_count": 1,
         "updated_at": "2026-08-10T02:52:30Z"
       }

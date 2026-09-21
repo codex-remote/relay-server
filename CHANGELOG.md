@@ -1,6 +1,6 @@
 # Changelog
 
-AI Coding Remote Relay Server 的重要变更记录在此文件中。
+Codex Remote Relay Server 的重要变更记录在此文件中。
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)。正式发布后遵循 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)。
 
@@ -12,6 +12,7 @@ AI Coding Remote Relay Server 的重要变更记录在此文件中。
 
 ### Added
 
+- Adopted Apache License 2.0, public contribution guidance, CI, and Dependabot updates.
 - Added JSON `events:poll` Session/Run endpoints with durable sequence cursors, bounded waits, PostgreSQL page reads, Redis notifications and terminal-state responses; existing SSE routes remain available.
 - Added an independent PostgreSQL `auth` schema and Runtime Auth module with one-time pairing grants, opaque Access/Refresh Tokens, scope enforcement, transactional Refresh rotation, replay detection, session revocation, and client revocation.
 - Added a loopback-only Auth Control listener on `127.0.0.1:18776` plus `relayctl pair`, `auth-clients`, and `revoke-client` commands.
