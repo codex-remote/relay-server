@@ -16,6 +16,15 @@ type testPeer struct {
 	closed   bool
 }
 
+type testObserver struct {
+	forwarded bool
+}
+
+func (*testObserver) AgentConnected(hub.Peer)                            {}
+func (*testObserver) AgentDisconnected(hub.Peer)                         {}
+func (*testObserver) AgentMessage(hub.Peer, protocol.Message) bool       { return false }
+func (o *testObserver) AgentMessageForwarded(hub.Peer, protocol.Message) { o.forwarded = true }
+
 func (p *testPeer) ID() uint64   { return p.id }
 func (p *testPeer) Role() string { return p.role }
 func (p *testPeer) Send(m protocol.Message) error {
@@ -67,5 +76,23 @@ func TestRouterClosesSlowTarget(t *testing.T) {
 	router.Handle(app, message)
 	if !agent.closed {
 		t.Fatal("slow Agent was not closed")
+	}
+}
+
+func TestRouterAcknowledgesObserverOnlyAfterAgentMessageIsForwarded(t *testing.T) {
+	registry := hub.NewRegistry()
+	messageRouter := New(registry, nil)
+	observer := &testObserver{}
+	messageRouter.SetObserver(observer)
+	app := &testPeer{id: 1, role: protocol.RoleApp}
+	agent := &testPeer{id: 2, role: protocol.RoleAgent}
+	messageRouter.Connect(agent)
+	messageRouter.Connect(app)
+	app.messages = nil
+	message, _ := protocol.NewMessage(protocol.TypeTurnCompleted, "legacy-run", protocol.Sender{Kind: "device", ID: "mac"}, protocol.TurnCompletedPayload{})
+	message.AgentSequence = 1
+	messageRouter.Handle(agent, message)
+	if !observer.forwarded || len(app.messages) != 1 || app.messages[0].TraceID != "legacy-run" {
+		t.Fatalf("forwarded=%t App messages=%#v", observer.forwarded, app.messages)
 	}
 }

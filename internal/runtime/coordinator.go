@@ -3,13 +3,17 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/codex-remote/relay-server/internal/hub"
 	"github.com/codex-remote/relay-server/internal/protocol"
 )
+
+const projectRefreshTraceID = "project-refresh"
 
 type AgentRegistry interface {
 	Peer(string) hub.Peer
@@ -24,6 +28,7 @@ type Coordinator struct {
 	logger   *slog.Logger
 	workerID string
 	source   *SourceGateway
+	runIDs   sync.Map
 }
 
 func NewCoordinator(store Store, broker Broker, registry AgentRegistry, logger *slog.Logger) *Coordinator {
@@ -47,7 +52,7 @@ func (c *Coordinator) Close() {
 
 func (c *Coordinator) AgentConnected(peer hub.Peer) {
 	_ = c.broker.SetAgentPresence(c.ctx, true)
-	message, _ := protocol.NewMessage(protocol.TypeProjectList, "project-refresh", protocol.Sender{Kind: "relay", ID: "run-server"}, protocol.ProjectListPayload{})
+	message, _ := protocol.NewMessage(protocol.TypeProjectList, projectRefreshTraceID, protocol.Sender{Kind: "relay", ID: "run-server"}, protocol.ProjectListPayload{})
 	_ = peer.Send(message)
 }
 
@@ -67,6 +72,9 @@ func (c *Coordinator) AgentMessage(peer hub.Peer, message protocol.Message) bool
 		_ = c.broker.SetAgentPresence(c.ctx, true)
 		return true
 	case protocol.TypeProjectSnapshot:
+		if message.TraceID != projectRefreshTraceID {
+			return false
+		}
 		payload, err := protocol.PayloadAs[protocol.ProjectSnapshotPayload](message)
 		if err != nil {
 			return true
@@ -102,6 +110,9 @@ func (c *Coordinator) AgentMessage(peer hub.Peer, message protocol.Message) bool
 			return true
 		}
 		runID := message.TraceID
+		if !c.ownsRuntimeRun(runID) {
+			return false
+		}
 		event := RunEvent{Sequence: message.AgentSequence, Type: runtimeEventType(message.Type), Payload: message.Payload, OccurredAt: message.OccurredAt}
 		if err := c.broker.AppendRunEvent(c.ctx, runID, event); err != nil {
 			c.logger.Error("Append Redis run event", "run_id", runID, "sequence", message.AgentSequence, "error", err)
@@ -124,6 +135,38 @@ func (c *Coordinator) AgentMessage(peer hub.Peer, message protocol.Message) bool
 				_ = c.store.MarkCommandDelivered(c.ctx, payload.CommandID)
 			}
 		}
+		return true
+	default:
+		return false
+	}
+}
+
+func (c *Coordinator) AgentMessageForwarded(peer hub.Peer, message protocol.Message) {
+	if message.AgentSequence < 1 || !durableRuntimeMessage(message.Type) {
+		return
+	}
+	c.sendAck(peer, protocol.TypeRuntimeReceivedAck, message.TraceID, message.AgentSequence)
+	c.sendAck(peer, protocol.TypeRuntimeDurableAck, message.TraceID, message.AgentSequence)
+}
+
+func (c *Coordinator) ownsRuntimeRun(runID string) bool {
+	if _, ok := c.runIDs.Load(runID); ok {
+		return true
+	}
+	if _, err := c.store.GetRun(c.ctx, runID, false); err == nil {
+		c.runIDs.Store(runID, struct{}{})
+		return true
+	} else if errors.Is(err, ErrNotFound) {
+		return false
+	} else {
+		c.logger.Error("Resolve Runtime run", "run_id", runID, "error", err)
+		return true
+	}
+}
+
+func durableRuntimeMessage(messageType string) bool {
+	switch messageType {
+	case protocol.TypeRunAccepted, protocol.TypeTurnStarted, protocol.TypeTurnOutput, protocol.TypeTurnItemStarted, protocol.TypeTurnItemDelta, protocol.TypeTurnItemDone, protocol.TypeTurnCompleted, protocol.TypeTurnFailed, protocol.TypeTurnInterrupted, protocol.TypeTurnRejected:
 		return true
 	default:
 		return false

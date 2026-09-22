@@ -19,6 +19,10 @@ type Observer interface {
 	AgentMessage(hub.Peer, protocol.Message) bool
 }
 
+type forwardedAgentMessageObserver interface {
+	AgentMessageForwarded(hub.Peer, protocol.Message)
+}
+
 func New(registry *hub.Registry, logger *slog.Logger) *Router {
 	if logger == nil {
 		logger = slog.Default()
@@ -102,6 +106,11 @@ func (r *Router) Handle(peer hub.Peer, message protocol.Message) {
 			r.Reject(peer, message.TraceID, "INTERNAL_ERROR", "Mac Agent connection is unavailable")
 		}
 		return
+	}
+	if peer.Role() == protocol.RoleAgent && r.observer != nil {
+		if observer, ok := r.observer.(forwardedAgentMessageObserver); ok {
+			observer.AgentMessageForwarded(peer, message)
+		}
 	}
 	r.logger.Debug("Message routed", "source", peer.Role(), "target", targetRole, "message_type", message.Type, "message_id", message.MessageID)
 }
