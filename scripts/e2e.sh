@@ -7,6 +7,7 @@ test_root="$(mktemp -d "${TMPDIR:-/tmp}/ai-coding-remote-relay-e2e.XXXXXX")"
 project_dir="$test_root/project"
 state_file="$test_root/codex-state.json"
 port="${RELAY_E2E_PORT:-18766}"
+auth_control_port="${RELAY_E2E_AUTH_CONTROL_PORT:-18767}"
 relay_log="$test_root/relay.log"
 agent_log="$test_root/agent.log"
 
@@ -162,6 +163,7 @@ go build -C "$relay_root" -o "$test_root/relayctl" ./cmd/relayctl
 go build -C "$mac_agent_root" -o "$test_root/mac-agent" ./cmd/agent
 go build -o "$test_root/fake-codex" "$test_root/fake_app_server.go"
 
+AUTH_CONTROL_ADDR="127.0.0.1:$auth_control_port" \
 "$test_root/relay" --listen "127.0.0.1:$port" >"$relay_log" 2>&1 &
 relay_pid=$!
 for _ in {1..50}; do

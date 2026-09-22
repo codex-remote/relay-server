@@ -159,6 +159,49 @@ func TestRenderLargeTerminalQRUsesSquareCells(t *testing.T) {
 	}
 }
 
+func TestRenderCameraTerminalQRUsesSolidBackgroundCells(t *testing.T) {
+	content := "http://192.168.1.5:18774/pair#code=secret"
+	var output strings.Builder
+	if err := renderTerminalQR(&output, content, "camera", 1); err != nil {
+		t.Fatal(err)
+	}
+	code, err := qrcode.New(content, qrcode.Medium)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bitmapSize := len(code.Bitmap()) + 2
+	lines := strings.Split(strings.TrimSuffix(output.String(), "\n"), "\n")
+	if len(lines) != (bitmapSize+1)/2 {
+		t.Fatalf("camera QR lines = %d, want %d", len(lines), (bitmapSize+1)/2)
+	}
+	for _, expected := range []string{
+		"\x1b[48;2;0;0;0m ",
+		"\x1b[48;2;255;255;255m ",
+		"\x1b[38;2;0;0;0;48;2;255;255;255m▀",
+		"\x1b[38;2;255;255;255;48;2;0;0;0m▀",
+	} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("camera QR is missing ANSI cell %q", expected)
+		}
+	}
+	if strings.Contains(output.String(), "█") {
+		t.Fatal("camera QR must not use full-block glyphs that can leave font seams")
+	}
+}
+
+func TestAddQuietZoneAddsLightModules(t *testing.T) {
+	bitmap := [][]bool{{true, false}, {false, true}}
+	got := addQuietZone(bitmap, 1)
+	if len(got) != 4 || len(got[0]) != 4 || !got[1][1] || !got[2][2] {
+		t.Fatalf("quiet-zone bitmap = %#v", got)
+	}
+	for _, point := range [][2]int{{0, 0}, {0, 3}, {3, 0}, {3, 3}} {
+		if got[point[0]][point[1]] {
+			t.Fatalf("quiet-zone corner %v is dark", point)
+		}
+	}
+}
+
 func TestRenderSmallTerminalQR(t *testing.T) {
 	content := "http://192.168.1.5:18774/pair#code=secret"
 	var output strings.Builder
