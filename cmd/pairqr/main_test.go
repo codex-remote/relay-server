@@ -135,6 +135,30 @@ func TestRenderCompactTerminalQR(t *testing.T) {
 	}
 }
 
+func TestRenderLargeTerminalQRUsesSquareCells(t *testing.T) {
+	content := "http://192.168.1.5:18774/pair#code=secret"
+	var output strings.Builder
+	if err := renderTerminalQR(&output, content, "large", 2); err != nil {
+		t.Fatal(err)
+	}
+	code, err := qrcode.New(content, qrcode.Medium)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bitmapSize := len(code.Bitmap())
+	lines := strings.Split(strings.TrimSuffix(output.String(), "\n"), "\n")
+	if len(lines) != bitmapSize {
+		t.Fatalf("terminal QR lines = %d, want %d", len(lines), bitmapSize)
+	}
+	firstLine := strings.TrimSuffix(strings.TrimPrefix(lines[0], "  \x1b[30;107m"), "\x1b[0m")
+	if width := utf8.RuneCountInString(firstLine); width != bitmapSize*2 {
+		t.Fatalf("terminal QR width = %d, want %d", width, bitmapSize*2)
+	}
+	if !strings.Contains(output.String(), "██") {
+		t.Fatal("large terminal QR is missing full block cells")
+	}
+}
+
 func TestRenderSmallTerminalQR(t *testing.T) {
 	content := "http://192.168.1.5:18774/pair#code=secret"
 	var output strings.Builder

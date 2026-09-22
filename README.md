@@ -96,7 +96,7 @@ curl http://127.0.0.1:18775/status
 devrun crpair
 ```
 
-`devrun crpair` 是注册后的推荐入口，等价全名为 `devrun codexremote mobileweb-pairing qr`，也可按 Auth Control 端口运行 `devrun 18776`。三个入口默认把约 45×23 的 `compact` 白底半块二维码绘制到终端末尾；一列字符对应一个 QR 模块、上下半块分别对应两行模块，避免 Braille 字形间隙破坏扫码识别。空间极其受限时仍可显式传入 `--terminal-render small`，但该约 23×12 模式依赖终端字体，不作为手机扫码的可靠路径。交互终端中的标题、有效期、链接、路径和安全警告使用不同颜色，设置 `NO_COLOR` 后恢复纯文本。嵌入其他已提供安全提示的启动器时，可用 `--print-metadata=false` 隐藏重复标题和警告。工具自动选择 Mac 的私有局域网 IPv4，使用 Gateway 端口 `18774`；地址选择不正确时可以显式覆盖，需要保存图片时使用 `--output`，生成文件权限固定为 `0600`：
+`devrun crpair` 是注册后的推荐入口，等价全名为 `devrun codexremote mobileweb-pairing qr`，也可按 Auth Control 端口运行 `devrun 18776`。三个入口默认把带 quiet zone 的大号黑白二维码绘制到终端末尾；每个 QR 模块使用两个等宽全块字符，避免终端字体和行高把二维码压扁，普通 iPhone 相机可直接识别。空间受限时可显式传入 `--terminal-render compact`，极度受限时使用 `--terminal-render small`；这两种模式依赖终端字体，不作为通用扫码路径。交互终端中的标题、有效期、链接、路径和安全警告使用不同颜色，设置 `NO_COLOR` 后恢复纯文本。嵌入其他已提供安全提示的启动器时，可用 `--print-metadata=false` 隐藏重复标题和警告。工具自动选择 Mac 的私有局域网 IPv4，使用 Gateway 端口 `18774`；地址选择不正确时可以显式覆盖，需要保存图片时使用 `--output`，生成文件权限固定为 `0600`：
 
 ```bash
 devrun crpair --origin http://192.168.3.8:18774 --name "My iPhone"
