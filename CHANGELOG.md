@@ -41,9 +41,10 @@ Codex Remote Relay Server 的重要变更记录在此文件中。
 
 - Runtime project refresh now consumes only its internal `project-refresh` response; native iPhone and `relayctl` WebSocket project snapshots continue through the Router to the requesting App.
 - Turn events are persisted only for Runs created through the Runtime HTTP contract. Legacy native-iPhone/`relayctl` WebSocket events are forwarded to the App and acknowledged after successful delivery, preventing foreign-key failures and durable outbox replay loops.
-- Reduced terminal pairing QR output to roughly one quarter of its previous area by using square-proportioned half-block cells and placing the QR last so it remains visible in an 80×24 terminal.
+- Terminal pairing QR output now defaults to a medium camera renderer with pure black/white ANSI cell backgrounds and an extra quiet-zone border, avoiding full-block glyph seams while fitting in roughly 47×24 terminal cells.
 - Added TTY-aware, `NO_COLOR`-compatible colors for pairing titles, expiration, links, PNG paths, and credential warnings.
-- Kept the bright-white 2×4 Braille renderer as an explicit space-saving mode, while making the white half-block renderer the default because its full-area QR modules scan reliably across terminal fonts; link suppression and indentation controls remain available for embedded deployment output.
+- Kept large, compact, and small terminal QR renderers as explicit overrides; link suppression and indentation controls remain available for embedded deployment output.
+- Isolated the release E2E Auth Control listener from the installed Runtime port, so the full Relay gate can run without stopping a healthy local environment.
 - Bootstrap terminal snapshots now replace stale Run status and event history by Codex Turn ID, advance the Session cursor only for material changes, and ignore nonterminal history instead of treating unknown states as completed.
 - Wait for the exact managed Relay PID to exit before reusing a launchd label, preventing fast restarts from losing the replacement job after the listener closes early during graceful shutdown.
 - Made concurrent idempotent Session/Run creation return one resource without unique-key races.

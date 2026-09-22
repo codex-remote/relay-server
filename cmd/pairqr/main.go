@@ -52,15 +52,15 @@ func run(arguments []string, stdout, stderr io.Writer, client *http.Client) int 
 	controlURL := flags.String("control-url", defaultControlURL, "loopback Auth Control origin")
 	output := flags.String("output", "", "optional PNG output path")
 	terminal := flags.Bool("terminal", true, "render the QR code in the terminal")
-	terminalRender := flags.String("terminal-render", "large", "terminal QR style: large, compact, or small")
+	terminalRender := flags.String("terminal-render", "camera", "terminal QR style: camera, large, compact, or small")
 	terminalIndent := flags.Int("terminal-indent", 2, "spaces before each terminal QR row")
 	printLink := flags.Bool("print-link", true, "print the full pairing link")
 	printMetadata := flags.Bool("print-metadata", true, "print the pairing heading and security warning")
 	if err := flags.Parse(arguments); err != nil {
 		return 2
 	}
-	if *terminalRender != "large" && *terminalRender != "compact" && *terminalRender != "small" {
-		fmt.Fprintln(stderr, "--terminal-render must be large, compact, or small")
+	if *terminalRender != "camera" && *terminalRender != "large" && *terminalRender != "compact" && *terminalRender != "small" {
+		fmt.Fprintln(stderr, "--terminal-render must be camera, large, compact, or small")
 		return 2
 	}
 	if *terminalIndent < 0 || *terminalIndent > 40 {
@@ -252,10 +252,62 @@ func renderTerminalQR(writer io.Writer, content, renderMode string, indent int) 
 	if renderMode == "small" {
 		return renderSmallTerminalQR(writer, bitmap, indent)
 	}
+	if renderMode == "camera" {
+		return renderCameraTerminalQR(writer, addQuietZone(bitmap, 1), indent)
+	}
 	if renderMode == "large" {
 		return renderLargeTerminalQR(writer, bitmap, indent)
 	}
 	return renderCompactTerminalQR(writer, bitmap, indent)
+}
+
+func addQuietZone(bitmap [][]bool, modules int) [][]bool {
+	if modules <= 0 || len(bitmap) == 0 {
+		return bitmap
+	}
+	width := len(bitmap[0]) + modules*2
+	result := make([][]bool, len(bitmap)+modules*2)
+	for row := range result {
+		result[row] = make([]bool, width)
+	}
+	for row := range bitmap {
+		copy(result[row+modules][modules:], bitmap[row])
+	}
+	return result
+}
+
+func renderCameraTerminalQR(writer io.Writer, bitmap [][]bool, indent int) error {
+	const (
+		reset      = "\x1b[0m"
+		blackCell  = "\x1b[48;2;0;0;0m "
+		whiteCell  = "\x1b[48;2;255;255;255m "
+		blackWhite = "\x1b[38;2;0;0;0;48;2;255;255;255m▀"
+		whiteBlack = "\x1b[38;2;255;255;255;48;2;0;0;0m▀"
+	)
+	for row := 0; row < len(bitmap); row += 2 {
+		if _, err := io.WriteString(writer, strings.Repeat(" ", indent)); err != nil {
+			return err
+		}
+		for column, topDark := range bitmap[row] {
+			bottomDark := row+1 < len(bitmap) && bitmap[row+1][column]
+			cell := whiteCell
+			switch {
+			case topDark && bottomDark:
+				cell = blackCell
+			case topDark:
+				cell = blackWhite
+			case bottomDark:
+				cell = whiteBlack
+			}
+			if _, err := io.WriteString(writer, cell); err != nil {
+				return err
+			}
+		}
+		if _, err := io.WriteString(writer, reset+"\n"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func renderLargeTerminalQR(writer io.Writer, bitmap [][]bool, indent int) error {
