@@ -13,6 +13,12 @@ agent_log="$test_root/agent.log"
 relay_pid=""
 agent_pid=""
 cleanup() {
+	exit_status=$?
+	if [[ "$exit_status" -ne 0 ]]; then
+		echo "Relay E2E failed; fixture logs:" >&2
+		tail -n 80 "$relay_log" >&2 2>/dev/null || true
+		tail -n 80 "$agent_log" >&2 2>/dev/null || true
+	fi
 	if [[ -n "$agent_pid" ]]; then
 		kill "$agent_pid" 2>/dev/null || true
 		wait "$agent_pid" 2>/dev/null || true
@@ -171,6 +177,7 @@ AGENT_WORKSPACE_ROOTS="$project_dir" \
 AGENT_CODEX_STATE_FILE="$state_file" \
 AGENT_PROJECT_SCAN_DEPTH=1 \
 AGENT_CODEX_BINARY="$test_root/fake-codex" \
+AGENT_RUNTIME_DB_PATH="$test_root/agent-runtime.sqlite3" \
 FAKE_PROJECT_DIR="$project_dir" \
 "$test_root/mac-agent" serve >"$agent_log" 2>&1 &
 agent_pid=$!
