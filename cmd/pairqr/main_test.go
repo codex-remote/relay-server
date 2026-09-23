@@ -301,3 +301,36 @@ func TestRunCanSuppressCredentialMetadata(t *testing.T) {
 		t.Fatalf("suppressed output = stdout %q, stderr %q", stdout.String(), stderr.String())
 	}
 }
+
+func TestRunUsesCopyableURLLayout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(writer).Encode(map[string]any{
+			"success": true,
+			"data": map[string]any{
+				"code":       "one-time-code",
+				"expires_at": time.Now().Add(10 * time.Minute).UTC(),
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout strings.Builder
+	var stderr strings.Builder
+	if exitCode := run([]string{
+		"--origin=http://192.168.1.5:18774",
+		"--control-url=" + server.URL,
+		"--terminal=false",
+	}, &stdout, &stderr, server.Client()); exitCode != 0 {
+		t.Fatalf("run exit code = %d, stderr = %q", exitCode, stderr.String())
+	}
+	for _, expected := range []string{"Codex Remote pairing QR", "Pairing link:", "http://192.168.1.5:18774/pair#code=one-time-code"} {
+		if !strings.Contains(stdout.String(), expected) {
+			t.Fatalf("stdout is missing %q: %q", expected, stdout.String())
+		}
+	}
+	if !strings.Contains(stderr.String(), "Security:") {
+		t.Fatalf("stderr is missing security warning: %q", stderr.String())
+	}
+}
