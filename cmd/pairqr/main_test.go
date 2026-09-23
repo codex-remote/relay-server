@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"image/png"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,8 +13,6 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
-
-	qrcode "github.com/skip2/go-qrcode"
 )
 
 func TestParseOrigin(t *testing.T) {
@@ -109,6 +108,21 @@ func TestWritePNGUsesPrivatePermissions(t *testing.T) {
 	if string(header) != "\x89PNG\r\n\x1a\n" {
 		t.Fatalf("PNG header = %q", header)
 	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		t.Fatal(err)
+	}
+	imageInfo, err := png.DecodeConfig(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bitmap, err := qrBitmap("http://192.168.1.5:18774/pair#code=secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantSize := len(bitmap) * 5
+	if imageInfo.Width != wantSize || imageInfo.Height != wantSize {
+		t.Fatalf("PNG dimensions = %dx%d, want %dx%d", imageInfo.Width, imageInfo.Height, wantSize, wantSize)
+	}
 }
 
 func TestRenderCompactTerminalQR(t *testing.T) {
@@ -117,11 +131,11 @@ func TestRenderCompactTerminalQR(t *testing.T) {
 	if err := renderTerminalQR(&output, content, "compact", 2); err != nil {
 		t.Fatal(err)
 	}
-	code, err := qrcode.New(content, qrcode.Medium)
+	bitmap, err := qrBitmap(content)
 	if err != nil {
 		t.Fatal(err)
 	}
-	bitmapSize := len(code.Bitmap())
+	bitmapSize := len(bitmap)
 	lines := strings.Split(strings.TrimSuffix(output.String(), "\n"), "\n")
 	if len(lines) != (bitmapSize+1)/2 {
 		t.Fatalf("terminal QR lines = %d, want %d", len(lines), (bitmapSize+1)/2)
@@ -141,11 +155,11 @@ func TestRenderLargeTerminalQRUsesSquareCells(t *testing.T) {
 	if err := renderTerminalQR(&output, content, "large", 2); err != nil {
 		t.Fatal(err)
 	}
-	code, err := qrcode.New(content, qrcode.Medium)
+	bitmap, err := qrBitmap(content)
 	if err != nil {
 		t.Fatal(err)
 	}
-	bitmapSize := len(code.Bitmap())
+	bitmapSize := len(bitmap)
 	lines := strings.Split(strings.TrimSuffix(output.String(), "\n"), "\n")
 	if len(lines) != bitmapSize {
 		t.Fatalf("terminal QR lines = %d, want %d", len(lines), bitmapSize)
@@ -165,15 +179,14 @@ func TestRenderCameraTerminalQRUsesSolidBackgroundCells(t *testing.T) {
 	if err := renderTerminalQR(&output, content, "camera", 1); err != nil {
 		t.Fatal(err)
 	}
-	code, err := qrcode.New(content, qrcode.Medium)
+	bitmap, err := qrBitmap(content)
 	if err != nil {
 		t.Fatal(err)
 	}
-	bitmap := code.Bitmap()
 	bitmapSize := len(bitmap)
 	lines := strings.Split(strings.TrimSuffix(output.String(), "\n"), "\n")
-	if len(lines) != (bitmapSize+1)/2 {
-		t.Fatalf("camera QR lines = %d, want %d", len(lines), (bitmapSize+1)/2)
+	if len(lines) != bitmapSize {
+		t.Fatalf("camera QR lines = %d, want %d", len(lines), bitmapSize)
 	}
 	finderRow := -1
 	finderColumn := -1
@@ -193,25 +206,23 @@ func TestRenderCameraTerminalQRUsesSolidBackgroundCells(t *testing.T) {
 		t.Fatalf("first dark QR row = %d, want an even row aligned to the upper half-cell", finderRow)
 	}
 	const (
-		whiteCell = "\x1b[48;2;255;255;255m "
-		blackCell = "\x1b[48;2;0;0;0m "
+		whiteCell = "\x1b[48;2;255;255;255m  "
+		blackCell = "\x1b[48;2;0;0;0m  "
 	)
 	wantFinderEdge := " " + strings.Repeat(whiteCell, finderColumn) + blackCell
-	if !strings.HasPrefix(lines[finderRow/2], wantFinderEdge) {
+	if !strings.HasPrefix(lines[finderRow], wantFinderEdge) {
 		t.Fatal("camera QR finder top-left corner is not joined with its left edge")
 	}
 	for _, expected := range []string{
-		"\x1b[48;2;0;0;0m ",
-		"\x1b[48;2;255;255;255m ",
-		"\x1b[38;2;0;0;0;48;2;255;255;255m▀",
-		"\x1b[38;2;255;255;255;48;2;0;0;0m▀",
+		"\x1b[48;2;0;0;0m  ",
+		"\x1b[48;2;255;255;255m  ",
 	} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("camera QR is missing ANSI cell %q", expected)
 		}
 	}
-	if strings.Contains(output.String(), "█") {
-		t.Fatal("camera QR must not use full-block glyphs that can leave font seams")
+	if strings.ContainsAny(output.String(), "█▀▄") {
+		t.Fatal("camera QR must use complete background cells, not font-dependent block glyphs")
 	}
 }
 
@@ -221,11 +232,11 @@ func TestRenderSmallTerminalQR(t *testing.T) {
 	if err := renderTerminalQR(&output, content, "small", 3); err != nil {
 		t.Fatal(err)
 	}
-	code, err := qrcode.New(content, qrcode.Medium)
+	bitmap, err := qrBitmap(content)
 	if err != nil {
 		t.Fatal(err)
 	}
-	bitmapSize := len(code.Bitmap())
+	bitmapSize := len(bitmap)
 	lines := strings.Split(strings.TrimSuffix(output.String(), "\n"), "\n")
 	if len(lines) != (bitmapSize+3)/4 {
 		t.Fatalf("small terminal QR lines = %d, want %d", len(lines), (bitmapSize+3)/4)
