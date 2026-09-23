@@ -253,27 +253,12 @@ func renderTerminalQR(writer io.Writer, content, renderMode string, indent int) 
 		return renderSmallTerminalQR(writer, bitmap, indent)
 	}
 	if renderMode == "camera" {
-		return renderCameraTerminalQR(writer, addQuietZone(bitmap, 1), indent)
+		return renderCameraTerminalQR(writer, bitmap, indent)
 	}
 	if renderMode == "large" {
 		return renderLargeTerminalQR(writer, bitmap, indent)
 	}
 	return renderCompactTerminalQR(writer, bitmap, indent)
-}
-
-func addQuietZone(bitmap [][]bool, modules int) [][]bool {
-	if modules <= 0 || len(bitmap) == 0 {
-		return bitmap
-	}
-	width := len(bitmap[0]) + modules*2
-	result := make([][]bool, len(bitmap)+modules*2)
-	for row := range result {
-		result[row] = make([]bool, width)
-	}
-	for row := range bitmap {
-		copy(result[row+modules][modules:], bitmap[row])
-	}
-	return result
 }
 
 func renderCameraTerminalQR(writer io.Writer, bitmap [][]bool, indent int) error {

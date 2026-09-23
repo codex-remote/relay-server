@@ -41,7 +41,7 @@ Codex Remote Relay Server 的重要变更记录在此文件中。
 
 - Runtime project refresh now consumes only its internal `project-refresh` response; native iPhone and `relayctl` WebSocket project snapshots continue through the Router to the requesting App.
 - Turn events are persisted only for Runs created through the Runtime HTTP contract. Legacy native-iPhone/`relayctl` WebSocket events are forwarded to the App and acknowledged after successful delivery, preventing foreign-key failures and durable outbox replay loops.
-- Terminal pairing QR output now defaults to a medium camera renderer with pure black/white ANSI cell backgrounds and an extra quiet-zone border, avoiding full-block glyph seams while fitting in roughly 47×24 terminal cells.
+- Terminal pairing QR output now defaults to a medium camera renderer with pure black/white ANSI cell backgrounds and the encoder's standard quiet zone, avoiding full-block glyph seams while keeping finder-pattern borders joined in roughly 45×23 terminal cells.
 - Added TTY-aware, `NO_COLOR`-compatible colors for pairing titles, expiration, links, PNG paths, and credential warnings.
 - Kept large, compact, and small terminal QR renderers as explicit overrides; link suppression and indentation controls remain available for embedded deployment output.
 - Isolated the release E2E Auth Control listener from the installed Runtime port, so the full Relay gate can run without stopping a healthy local environment.
