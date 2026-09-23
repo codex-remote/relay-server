@@ -113,13 +113,20 @@ func run(arguments []string, stdout, stderr io.Writer, client *http.Client) int 
 	pairingLink := strings.TrimRight(parsedOrigin.String(), "/") + "/pair#code=" + url.QueryEscape(grant.Data.Code)
 
 	if *printMetadata {
-		fmt.Fprintf(stdout, "%s%sMobile Web pairing QR%s %s(expires %s)%s\n",
-			stdoutStyle.bold, stdoutStyle.cyan, stdoutStyle.reset,
-			stdoutStyle.yellow, grant.Data.ExpiresAt.Local().Format(time.RFC3339), stdoutStyle.reset)
+		if stdoutStyle.reset != "" {
+			fmt.Fprintf(stdout, "%s%sCodex Remote Pairing%s\n", stdoutStyle.bold, stdoutStyle.cyan, stdoutStyle.reset)
+			fmt.Fprintf(stdout, "%sExpires%s  %s%s%s\n", stdoutStyle.yellow, stdoutStyle.reset, stdoutStyle.yellow, grant.Data.ExpiresAt.Local().Format(time.RFC3339), stdoutStyle.reset)
+			fmt.Fprintf(stdout, "%sSecurity%s One-time credential; valid for one device\n", stdoutStyle.yellow, stdoutStyle.reset)
+		} else {
+			fmt.Fprintf(stdout, "Codex Remote pairing QR (expires %s)\n", grant.Data.ExpiresAt.Local().Format(time.RFC3339))
+		}
 	}
 	if *printLink {
-		fmt.Fprintf(stdout, "%sPairing link:%s\n%s%s%s\n",
-			stdoutStyle.green, stdoutStyle.reset, stdoutStyle.cyan, pairingLink, stdoutStyle.reset)
+		if stdoutStyle.reset != "" {
+			fmt.Fprintf(stdout, "%sCopyable URL%s\n%s\n", stdoutStyle.green, stdoutStyle.reset, pairingLink)
+		} else {
+			fmt.Fprintf(stdout, "Pairing link:\n%s\n", pairingLink)
+		}
 	}
 
 	if strings.TrimSpace(*output) != "" {
@@ -128,19 +135,37 @@ func run(arguments []string, stdout, stderr io.Writer, client *http.Client) int 
 			fmt.Fprintf(stderr, "write QR PNG: %v\n", err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "%sPNG:%s %s%s%s\n",
-			stdoutStyle.green, stdoutStyle.reset, stdoutStyle.cyan, path, stdoutStyle.reset)
+		if stdoutStyle.reset != "" {
+			fmt.Fprintf(stdout, "%sPNG file%s\n%s\n", stdoutStyle.green, stdoutStyle.reset, path)
+		} else {
+			fmt.Fprintf(stdout, "PNG: %s\n", path)
+		}
 	}
 	if *printMetadata {
-		fmt.Fprintf(stderr, "%sThis QR contains a one-time credential. Do not upload or share it publicly.%s\n",
-			stderrStyle.yellow, stderrStyle.reset)
+		warningWriter := stderr
+		warningStyle := stderrStyle
+		if *terminal && stdoutStyle.reset != "" {
+			warningWriter = stdout
+			warningStyle = stdoutStyle
+		}
+		if warningStyle.reset != "" {
+			fmt.Fprintf(warningWriter, "%sSecurity%s Do not upload or share this one-time credential.\n", warningStyle.yellow, warningStyle.reset)
+		} else {
+			fmt.Fprintln(warningWriter, "Security: Do not upload or share this one-time credential.")
+		}
 	}
 	if *terminal {
-		fmt.Fprintln(stdout)
+		if stdoutStyle.reset != "" {
+			fmt.Fprintf(stdout, "%sQR%s  Scan with your iPhone camera\n\n", stdoutStyle.bold, stdoutStyle.cyan)
+		} else {
+			fmt.Fprintln(stdout, "QR: Scan with your iPhone camera")
+			fmt.Fprintln(stdout)
+		}
 		if err := renderTerminalQR(stdout, pairingLink, *terminalRender, *terminalIndent); err != nil {
 			fmt.Fprintf(stderr, "render terminal QR: %v\n", err)
 			return 1
 		}
+		fmt.Fprintln(stdout)
 	}
 	return 0
 }
