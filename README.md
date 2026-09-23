@@ -96,7 +96,7 @@ curl http://127.0.0.1:18775/status
 devrun crpair
 ```
 
-`devrun crpair` 是注册后的推荐入口，等价全名为 `devrun codexremote mobileweb-pairing qr`，也可按 Auth Control 端口运行 `devrun 18776`。三个入口默认使用 `camera` 模式：约 45×24 字符，强制纯黑/纯白 ANSI 背景、额外一模块白色外框，实心区域不使用可能留下字体缝隙的 `█` 字形。空间和终端能力不同时仍可显式选择 `--terminal-render large|compact|small`；其中 `large` 占用最大，`compact/small` 更依赖字体比例。交互终端中的标题、有效期、链接、路径和安全警告使用不同颜色，设置 `NO_COLOR` 后恢复纯文本。嵌入其他已提供安全提示的启动器时，可用 `--print-metadata=false` 隐藏重复标题和警告。工具自动选择 Mac 的私有局域网 IPv4，使用 Gateway 端口 `18774`；地址选择不正确时可以显式覆盖，需要绝对像素几何时使用 `--output` 生成权限为 `0600` 的 PNG：
+`devrun crpair` 是注册后的推荐入口，等价全名为 `devrun codexremote mobileweb-pairing qr`，也可按 Auth Control 端口运行 `devrun 18776`。三个入口默认使用 `camera` 模式：约 45×23 字符，强制纯黑/纯白 ANSI 背景并保留编码器标准四模块静区；定位图案从终端上半单元开始，避免顶部边框与侧边断开。实心区域不使用可能留下字体缝隙的 `█` 字形。空间和终端能力不同时仍可显式选择 `--terminal-render large|compact|small`；其中 `large` 占用最大，`compact/small` 更依赖字体比例。交互终端中的标题、有效期、链接、路径和安全警告使用不同颜色，设置 `NO_COLOR` 后恢复纯文本。嵌入其他已提供安全提示的启动器时，可用 `--print-metadata=false` 隐藏重复标题和警告。工具自动选择 Mac 的私有局域网 IPv4，使用 Gateway 端口 `18774`；地址选择不正确时可以显式覆盖，需要绝对像素几何时使用 `--output` 生成权限为 `0600` 的 PNG：
 
 ```bash
 devrun crpair --origin http://192.168.3.8:18774 --name "My iPhone"

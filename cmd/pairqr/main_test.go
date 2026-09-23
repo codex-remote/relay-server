@@ -169,10 +169,36 @@ func TestRenderCameraTerminalQRUsesSolidBackgroundCells(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bitmapSize := len(code.Bitmap()) + 2
+	bitmap := code.Bitmap()
+	bitmapSize := len(bitmap)
 	lines := strings.Split(strings.TrimSuffix(output.String(), "\n"), "\n")
 	if len(lines) != (bitmapSize+1)/2 {
 		t.Fatalf("camera QR lines = %d, want %d", len(lines), (bitmapSize+1)/2)
+	}
+	finderRow := -1
+	finderColumn := -1
+	for row := range bitmap {
+		for column, dark := range bitmap[row] {
+			if dark {
+				finderRow = row
+				finderColumn = column
+				break
+			}
+		}
+		if finderRow >= 0 {
+			break
+		}
+	}
+	if finderRow < 0 || finderRow%2 != 0 {
+		t.Fatalf("first dark QR row = %d, want an even row aligned to the upper half-cell", finderRow)
+	}
+	const (
+		whiteCell = "\x1b[48;2;255;255;255m "
+		blackCell = "\x1b[48;2;0;0;0m "
+	)
+	wantFinderEdge := " " + strings.Repeat(whiteCell, finderColumn) + blackCell
+	if !strings.HasPrefix(lines[finderRow/2], wantFinderEdge) {
+		t.Fatal("camera QR finder top-left corner is not joined with its left edge")
 	}
 	for _, expected := range []string{
 		"\x1b[48;2;0;0;0m ",
@@ -186,19 +212,6 @@ func TestRenderCameraTerminalQRUsesSolidBackgroundCells(t *testing.T) {
 	}
 	if strings.Contains(output.String(), "█") {
 		t.Fatal("camera QR must not use full-block glyphs that can leave font seams")
-	}
-}
-
-func TestAddQuietZoneAddsLightModules(t *testing.T) {
-	bitmap := [][]bool{{true, false}, {false, true}}
-	got := addQuietZone(bitmap, 1)
-	if len(got) != 4 || len(got[0]) != 4 || !got[1][1] || !got[2][2] {
-		t.Fatalf("quiet-zone bitmap = %#v", got)
-	}
-	for _, point := range [][2]int{{0, 0}, {0, 3}, {3, 0}, {3, 3}} {
-		if got[point[0]][point[1]] {
-			t.Fatalf("quiet-zone corner %v is dark", point)
-		}
 	}
 }
 
