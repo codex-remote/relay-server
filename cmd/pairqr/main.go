@@ -7,6 +7,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"net"
 	"net/http"
@@ -16,7 +19,9 @@ import (
 	"strings"
 	"time"
 
-	qrcode "github.com/skip2/go-qrcode"
+	"github.com/makiuchi-d/gozxing"
+	"github.com/makiuchi-d/gozxing/qrcode"
+	"github.com/makiuchi-d/gozxing/qrcode/decoder"
 )
 
 const (
@@ -244,11 +249,10 @@ func detectLANIPv4() (net.IP, error) {
 }
 
 func renderTerminalQR(writer io.Writer, content, renderMode string, indent int) error {
-	code, err := qrcode.New(content, qrcode.Medium)
+	bitmap, err := qrBitmap(content)
 	if err != nil {
 		return err
 	}
-	bitmap := code.Bitmap()
 	if renderMode == "small" {
 		return renderSmallTerminalQR(writer, bitmap, indent)
 	}
@@ -263,26 +267,18 @@ func renderTerminalQR(writer io.Writer, content, renderMode string, indent int) 
 
 func renderCameraTerminalQR(writer io.Writer, bitmap [][]bool, indent int) error {
 	const (
-		reset      = "\x1b[0m"
-		blackCell  = "\x1b[48;2;0;0;0m "
-		whiteCell  = "\x1b[48;2;255;255;255m "
-		blackWhite = "\x1b[38;2;0;0;0;48;2;255;255;255m▀"
-		whiteBlack = "\x1b[38;2;255;255;255;48;2;0;0;0m▀"
+		reset     = "\x1b[0m"
+		blackCell = "\x1b[48;2;0;0;0m  "
+		whiteCell = "\x1b[48;2;255;255;255m  "
 	)
-	for row := 0; row < len(bitmap); row += 2 {
+	for row := range bitmap {
 		if _, err := io.WriteString(writer, strings.Repeat(" ", indent)); err != nil {
 			return err
 		}
-		for column, topDark := range bitmap[row] {
-			bottomDark := row+1 < len(bitmap) && bitmap[row+1][column]
+		for _, dark := range bitmap[row] {
 			cell := whiteCell
-			switch {
-			case topDark && bottomDark:
+			if dark {
 				cell = blackCell
-			case topDark:
-				cell = blackWhite
-			case bottomDark:
-				cell = whiteBlack
 			}
 			if _, err := io.WriteString(writer, cell); err != nil {
 				return err
@@ -377,15 +373,57 @@ func writePNG(output, content string) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(absolutePath), 0o700); err != nil {
 		return "", err
 	}
-	data, err := qrcode.Encode(content, qrcode.Medium, 512)
+	bitmap, err := qrBitmap(content)
 	if err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(absolutePath, data, 0o600); err != nil {
+	const modulePixels = 5
+	img := image.NewGray(image.Rect(0, 0, len(bitmap[0])*modulePixels, len(bitmap)*modulePixels))
+	for row := range bitmap {
+		for column, dark := range bitmap[row] {
+			shade := uint8(255)
+			if dark {
+				shade = 0
+			}
+			for y := row * modulePixels; y < (row+1)*modulePixels; y++ {
+				for x := column * modulePixels; x < (column+1)*modulePixels; x++ {
+					img.SetGray(x, y, color.Gray{Y: shade})
+				}
+			}
+		}
+	}
+	file, err := os.OpenFile(absolutePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return "", err
+	}
+	if err := png.Encode(file, img); err != nil {
+		_ = file.Close()
+		return "", err
+	}
+	if err := file.Close(); err != nil {
 		return "", err
 	}
 	if err := os.Chmod(absolutePath, 0o600); err != nil {
 		return "", err
 	}
 	return absolutePath, nil
+}
+
+func qrBitmap(content string) ([][]bool, error) {
+	hints := map[gozxing.EncodeHintType]interface{}{
+		gozxing.EncodeHintType_ERROR_CORRECTION: decoder.ErrorCorrectionLevel_H,
+		gozxing.EncodeHintType_MARGIN:           4,
+	}
+	matrix, err := qrcode.NewQRCodeWriter().Encode(content, gozxing.BarcodeFormat_QR_CODE, 0, 0, hints)
+	if err != nil {
+		return nil, err
+	}
+	bitmap := make([][]bool, matrix.GetHeight())
+	for row := range bitmap {
+		bitmap[row] = make([]bool, matrix.GetWidth())
+		for column := range bitmap[row] {
+			bitmap[row][column] = matrix.Get(column, row)
+		}
+	}
+	return bitmap, nil
 }
