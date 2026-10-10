@@ -74,10 +74,13 @@ func TestRuntimePostgresRedisAgentFlow(t *testing.T) {
 	_ = readProtocol(t, agent)
 	session := post(t, httpServer.URL+"/v1/runtime/sessions", "session-key-"+protocol.NewID(), map[string]any{"project_id": projectID, "title": "Integration"})
 	sessionID := nestedString(session, "data", "session_id")
-	runResponse := post(t, httpServer.URL+"/v1/runtime/sessions/"+sessionID+"/runs", "run-key-"+protocol.NewID(), map[string]any{"prompt": "test"})
+	runResponse := post(t, httpServer.URL+"/v1/runtime/sessions/"+sessionID+"/runs", "run-key-"+protocol.NewID(), map[string]any{"prompt": "test", "permission_profile_id": ":workspace"})
 	runID := nestedString(runResponse, "data", "run_id")
 	start := readUntil(t, agent, protocol.TypeTurnStart)
 	payload, _ := protocol.PayloadAs[protocol.TurnStartPayload](start)
+	if payload.PermissionProfileID != ":workspace" {
+		t.Fatalf("permission profile = %q", payload.PermissionProfileID)
+	}
 	accepted, _ := protocol.NewMessage(protocol.TypeRunAccepted, runID, protocol.Sender{Kind: "device", ID: "local-mac"}, protocol.RunAcceptedPayload{CommandID: payload.CommandID, RunID: runID})
 	accepted.AgentSequence = 1
 	writeProtocol(t, agent, accepted)
@@ -209,7 +212,7 @@ func TestBootstrapCanonicalizesTerminalRunAndIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, _, _, err := store.CreateRun(ctx, session.ID, "stale prompt", "canonical-run-key-"+protocol.NewID(), runtimecore.RequestHash(map[string]string{"prompt": "stale prompt"}))
+	run, _, _, err := store.CreateRun(ctx, session.ID, "stale prompt", "", "canonical-run-key-"+protocol.NewID(), runtimecore.RequestHash(map[string]string{"prompt": "stale prompt"}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -336,7 +339,7 @@ func TestBootstrapReconciliationProtectsLiveProjectActivity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := store.CreateRun(ctx, activeSession.ID, "keep running", "active-run-key-"+protocol.NewID(), runtimecore.RequestHash(map[string]string{"prompt": "keep running"})); err != nil {
+	if _, _, _, err := store.CreateRun(ctx, activeSession.ID, "keep running", "", "active-run-key-"+protocol.NewID(), runtimecore.RequestHash(map[string]string{"prompt": "keep running"})); err != nil {
 		t.Fatal(err)
 	}
 	job, _, err := store.CreateSyncJob(ctx, "live-activity-sync-key-"+protocol.NewID())
@@ -393,7 +396,7 @@ func TestCreateRunConcurrentIdempotency(t *testing.T) {
 		group.Add(1)
 		go func() {
 			defer group.Done()
-			run, _, _, err := store.CreateRun(ctx, session.ID, "same prompt", key, hash)
+			run, _, _, err := store.CreateRun(ctx, session.ID, "same prompt", "", key, hash)
 			if err != nil {
 				errs <- err
 				return

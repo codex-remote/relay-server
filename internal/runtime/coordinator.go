@@ -28,6 +28,7 @@ type Coordinator struct {
 	logger   *slog.Logger
 	workerID string
 	source   *SourceGateway
+	profiles *ExecutionProfileGateway
 	runIDs   sync.Map
 }
 
@@ -36,8 +37,12 @@ func NewCoordinator(store Store, broker Broker, registry AgentRegistry, logger *
 }
 
 func NewCoordinatorWithSource(store Store, broker Broker, registry AgentRegistry, logger *slog.Logger, source *SourceGateway) *Coordinator {
+	return NewCoordinatorWithProviders(store, broker, registry, logger, source, nil)
+}
+
+func NewCoordinatorWithProviders(store Store, broker Broker, registry AgentRegistry, logger *slog.Logger, source *SourceGateway, profiles *ExecutionProfileGateway) *Coordinator {
 	ctx, cancel := context.WithCancel(context.Background())
-	c := &Coordinator{ctx: ctx, cancel: cancel, store: store, broker: broker, registry: registry, logger: logger, workerID: fmt.Sprintf("relay-%d", time.Now().UnixNano()), source: source}
+	c := &Coordinator{ctx: ctx, cancel: cancel, store: store, broker: broker, registry: registry, logger: logger, workerID: fmt.Sprintf("relay-%d", time.Now().UnixNano()), source: source, profiles: profiles}
 	go c.dispatchLoop()
 	return c
 }
@@ -46,6 +51,9 @@ func (c *Coordinator) Close() {
 	c.cancel()
 	if c.source != nil {
 		c.source.FailPending(ErrSourceUnavailable)
+	}
+	if c.profiles != nil {
+		c.profiles.FailPending(ErrExecutionProfilesUnavailable)
 	}
 	_ = c.broker.SetAgentPresence(context.Background(), false)
 }
@@ -60,11 +68,17 @@ func (c *Coordinator) AgentDisconnected(hub.Peer) {
 	if c.source != nil {
 		c.source.FailPending(ErrSourceAgentOffline)
 	}
+	if c.profiles != nil {
+		c.profiles.FailPending(ErrExecutionProfilesAgentOffline)
+	}
 	_ = c.broker.SetAgentPresence(context.Background(), false)
 }
 
 func (c *Coordinator) AgentMessage(peer hub.Peer, message protocol.Message) bool {
 	if c.source != nil && c.source.Handle(message) {
+		return true
+	}
+	if c.profiles != nil && c.profiles.Handle(message) {
 		return true
 	}
 	switch message.Type {

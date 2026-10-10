@@ -50,10 +50,13 @@ func TestApifoxContractMatchesRelayRoutes(t *testing.T) {
 		t.Fatal("OpenAPI does not require RuntimeBearer by default")
 	}
 	for path, method := range map[string]string{
-		"/v1/auth/pairing-grants:exchange": "post",
-		"/v1/auth/tokens:refresh":          "post",
-		"/v1/auth/sessions/current:revoke": "post",
-		"/v1/auth/me":                      "get",
+		"/v1/auth/pairing-grants:exchange":        "post",
+		"/v1/auth/tokens:refresh":                 "post",
+		"/v1/auth/sessions/current:revoke":        "post",
+		"/v1/auth/native/pairing-grants:exchange": "post",
+		"/v1/auth/native/tokens:refresh":          "post",
+		"/v1/auth/native/sessions/current:revoke": "post",
+		"/v1/auth/me": "get",
 	} {
 		if _, ok := document.Paths[path][method]; !ok {
 			t.Fatalf("Apifox OpenAPI is missing %s %s", strings.ToUpper(method), path)
@@ -66,6 +69,10 @@ func TestApifoxContractMatchesRelayRoutes(t *testing.T) {
 		if _, ok := document.Paths[path]["get"]; !ok {
 			t.Fatalf("Apifox OpenAPI is missing GET %s", path)
 		}
+	}
+	profilesPath := "/v1/runtime/projects/{project_id}/execution-profiles"
+	if _, ok := document.Paths[profilesPath]["get"]; !ok {
+		t.Fatalf("Apifox OpenAPI is missing GET %s", profilesPath)
 	}
 	sourcePath := "/v1/runtime/projects/{project_id}/source:read"
 	sourceOperation, ok := document.Paths[sourcePath]["post"]

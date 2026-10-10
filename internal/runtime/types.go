@@ -28,6 +28,7 @@ type Run struct {
 	Status                   string     `json:"status"`
 	StateVersion             int64      `json:"state_version"`
 	Prompt                   string     `json:"prompt,omitempty"`
+	PermissionProfileID      string     `json:"permission_profile_id,omitempty"`
 	CancelRequestedAt        *time.Time `json:"cancel_requested_at,omitempty"`
 	PersistedThroughSequence int64      `json:"persisted_through_sequence"`
 	FinalSequence            *int64     `json:"final_sequence,omitempty"`

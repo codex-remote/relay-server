@@ -1,6 +1,6 @@
 # Codex Remote - Relay Server
 
-Go 实现的 WebSocket Relay 与 Run Server。WebSocket Relay 负责 iPhone/Mac Agent 实时通信；Run Server 负责 Mobile Web 的 Runtime HTTP/SSE、PostgreSQL 权威状态和 Redis 活跃事件。Runtime Auth 通过独立包、`auth` Schema 和 `RuntimeAuthModule` 接入。它们共用当前二进制，但代码、路由和数据边界分离；这里的 Relay 不应与 `mobile-web` 仓库的 Mobile Web Gateway 混称。
+Go 实现的 WebSocket Relay 与 Run Server。WebSocket Relay 负责 Mac Agent 实时通信；Run Server 负责 iPhone App 与 Mobile Web 共用的 Runtime HTTP/SSE、PostgreSQL 权威状态和 Redis 活跃事件。Runtime Auth 通过独立包、`auth` Schema 和 `RuntimeAuthModule` 接入。它们共用当前二进制，但代码、路由和数据边界分离；这里的 Relay 不应与 `mobile-web` 仓库的 Mobile Web Gateway 混称。
 
 > Codex Remote 是独立开源项目，与 OpenAI 没有关联或背书关系。
 
@@ -22,7 +22,7 @@ Go 实现的 WebSocket Relay 与 Run Server。WebSocket Relay 负责 iPhone/Mac 
 
 - `GET /healthz`：进程健康。
 - `GET /status`：App/Agent 当前连接状态、App 连接代次和最近的终态确认。
-- `/ws/app`：iPhone 或 `relayctl` 入口。
+- `/ws/app`：旧兼容控制端与 `relayctl` 入口；iPhone App 已迁移到 Runtime v1。
 - `/ws/agent`：Mac Agent 入口。
 - v2 Project/Thread/Turn 消息方向白名单和透明转发，包括 `thread.read -> thread.detail` 历史查询。
 - 提供项目范围的源码读取 API；统一 Runtime Auth 要求 `source:read` Scope，请求只在内存中关联到 Mac Agent，不持久化源码正文。
@@ -31,11 +31,12 @@ Go 实现的 WebSocket Relay 与 Run Server。WebSocket Relay 负责 iPhone/Mac 
 - App 重连时恢复最近的 `agent.hello`、`agent.status` 和 `agent.capabilities`。
 - Ping/Pong、256 KiB 帧限制、有界发送队列和优雅关闭。
 - Runtime v1 Project/Session/Run/Bootstrap HTTP 与 Session/Run SSE。
+- Runtime v1 提供项目执行档位查询，并把 `permission_profile_id` 持久写入 Run 与命令 Outbox。
 - Runtime JSON 增量轮询接口已加入 OpenAPI、Runtime Handler 和 Gateway allowlist；公网限流、Cursor 过期和边缘行为仍待验收，契约见工作区 `Run Server JSON 轮询接口规范`。
-- 一次性配对、短期 Opaque Access Token、HttpOnly Refresh Cookie Rotation 和重放撤销。
+- 一次性配对、短期 Opaque Access Token、浏览器 HttpOnly Cookie Rotation、iPhone Keychain Native Rotation 和重放撤销。
 - `pairqr` 可自动生成局域网配对链接和二维码；`relayctl` 还可创建纯文本链接、列出和撤销 Runtime 客户端。
 
-旧 iPhone `/ws/app` MVP 仍是无应用层鉴权的历史接口，只能用于可信私有网络。Mobile Web Runtime 已启用独立鉴权，但完成 TLS、限流和公网硬化前仍不能直接暴露到公共互联网。
+旧 `/ws/app` MVP 仍是无应用层鉴权的兼容接口，只能用于可信私有网络；iPhone App 和 Mobile Web 不再使用它。完成 TLS、限流和公网硬化前，Runtime Gateway 仍不能直接暴露到公共互联网。
 
 ## Admin 与日志边界
 

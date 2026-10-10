@@ -191,7 +191,7 @@ func (s *PostgresStore) GetSession(ctx context.Context, id string) (Session, err
 	return item, err
 }
 
-func (s *PostgresStore) CreateRun(ctx context.Context, sessionID, prompt, key, hash string) (Run, int64, bool, error) {
+func (s *PostgresStore) CreateRun(ctx context.Context, sessionID, prompt, permissionProfileID, key, hash string) (Run, int64, bool, error) {
 	var existing Run
 	err := s.pool.QueryRow(ctx, `SELECT run_id FROM runtime.runs WHERE session_id=$1 AND idempotency_key=$2`, sessionID, key).Scan(&existing.ID)
 	if err == nil {
@@ -238,9 +238,9 @@ func (s *PostgresStore) CreateRun(ctx context.Context, sessionID, prompt, key, h
 	}
 	runID, commandID := newID("run"), newID("cmd")
 	var item Run
-	err = tx.QueryRow(ctx, `INSERT INTO runtime.runs(run_id,session_id,status,idempotency_key,request_hash,prompt_text) VALUES($1,$2,'queued',$3,$4,$5)
-		RETURNING run_id,session_id,COALESCE(codex_turn_id,''),status,state_version,COALESCE(prompt_text,''),cancel_requested_at,persisted_through_sequence,final_sequence,COALESCE(error_code,''),COALESCE(error_message,''),created_at,started_at,finished_at,updated_at`, runID, sessionID, key, hash, prompt).
-		Scan(&item.ID, &item.SessionID, &item.CodexTurnID, &item.Status, &item.StateVersion, &item.Prompt, &item.CancelRequestedAt, &item.PersistedThroughSequence, &item.FinalSequence, &item.ErrorCode, &item.ErrorMessage, &item.CreatedAt, &item.StartedAt, &item.FinishedAt, &item.UpdatedAt)
+	err = tx.QueryRow(ctx, `INSERT INTO runtime.runs(run_id,session_id,status,idempotency_key,request_hash,prompt_text,permission_profile_id) VALUES($1,$2,'queued',$3,$4,$5,NULLIF($6,''))
+		RETURNING run_id,session_id,COALESCE(codex_turn_id,''),status,state_version,COALESCE(prompt_text,''),COALESCE(permission_profile_id,''),cancel_requested_at,persisted_through_sequence,final_sequence,COALESCE(error_code,''),COALESCE(error_message,''),created_at,started_at,finished_at,updated_at`, runID, sessionID, key, hash, prompt, permissionProfileID).
+		Scan(&item.ID, &item.SessionID, &item.CodexTurnID, &item.Status, &item.StateVersion, &item.Prompt, &item.PermissionProfileID, &item.CancelRequestedAt, &item.PersistedThroughSequence, &item.FinalSequence, &item.ErrorCode, &item.ErrorMessage, &item.CreatedAt, &item.StartedAt, &item.FinishedAt, &item.UpdatedAt)
 	if err != nil {
 		return Run{}, 0, false, err
 	}
@@ -252,7 +252,7 @@ func (s *PostgresStore) CreateRun(ctx context.Context, sessionID, prompt, key, h
 	if _, err := tx.Exec(ctx, `INSERT INTO runtime.session_events(session_id,session_sequence,event_type,payload) VALUES($1,$2,'run.created',$3)`, sessionID, sequence, payload); err != nil {
 		return Run{}, 0, false, err
 	}
-	commandPayload, _ := json.Marshal(map[string]any{"command_id": commandID, "run_id": runID, "project_id": projectID, "thread_id": threadID, "prompt": prompt})
+	commandPayload := runStartCommandPayload(commandID, runID, projectID, threadID, prompt, permissionProfileID)
 	if _, err := tx.Exec(ctx, `INSERT INTO runtime.command_outbox(command_id,command_type,resource_id,payload) VALUES($1,'run.start',$2,$3)`, commandID, runID, commandPayload); err != nil {
 		return Run{}, 0, false, err
 	}
@@ -260,6 +260,14 @@ func (s *PostgresStore) CreateRun(ctx context.Context, sessionID, prompt, key, h
 		return Run{}, 0, false, err
 	}
 	return item, sequence, true, nil
+}
+
+func runStartCommandPayload(commandID, runID, projectID, threadID, prompt, permissionProfileID string) json.RawMessage {
+	payload, _ := json.Marshal(map[string]any{
+		"command_id": commandID, "run_id": runID, "project_id": projectID,
+		"thread_id": threadID, "prompt": prompt, "permission_profile_id": permissionProfileID,
+	})
+	return payload
 }
 
 func (s *PostgresStore) ListRuns(ctx context.Context, sessionID string) ([]Run, error) {
@@ -279,13 +287,13 @@ func (s *PostgresStore) ListRuns(ctx context.Context, sessionID string) ([]Run, 
 	return result, rows.Err()
 }
 
-const runSelect = `SELECT run_id,session_id,COALESCE(codex_turn_id,''),status,state_version,COALESCE(prompt_text,''),cancel_requested_at,persisted_through_sequence,final_sequence,COALESCE(error_code,''),COALESCE(error_message,''),created_at,started_at,finished_at,updated_at FROM runtime.runs`
+const runSelect = `SELECT run_id,session_id,COALESCE(codex_turn_id,''),status,state_version,COALESCE(prompt_text,''),COALESCE(permission_profile_id,''),cancel_requested_at,persisted_through_sequence,final_sequence,COALESCE(error_code,''),COALESCE(error_message,''),created_at,started_at,finished_at,updated_at FROM runtime.runs`
 
 type rowScanner interface{ Scan(...any) error }
 
 func scanRun(row rowScanner) (Run, error) {
 	var item Run
-	err := row.Scan(&item.ID, &item.SessionID, &item.CodexTurnID, &item.Status, &item.StateVersion, &item.Prompt, &item.CancelRequestedAt, &item.PersistedThroughSequence, &item.FinalSequence, &item.ErrorCode, &item.ErrorMessage, &item.CreatedAt, &item.StartedAt, &item.FinishedAt, &item.UpdatedAt)
+	err := row.Scan(&item.ID, &item.SessionID, &item.CodexTurnID, &item.Status, &item.StateVersion, &item.Prompt, &item.PermissionProfileID, &item.CancelRequestedAt, &item.PersistedThroughSequence, &item.FinalSequence, &item.ErrorCode, &item.ErrorMessage, &item.CreatedAt, &item.StartedAt, &item.FinishedAt, &item.UpdatedAt)
 	return item, err
 }
 

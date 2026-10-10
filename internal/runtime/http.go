@@ -14,9 +14,10 @@ import (
 )
 
 type API struct {
-	store  Store
-	broker Broker
-	source SourceProvider
+	store             Store
+	broker            Broker
+	source            SourceProvider
+	executionProfiles ExecutionProfileProvider
 }
 
 const (
@@ -32,9 +33,14 @@ func NewAPIWithSource(store Store, broker Broker, source SourceProvider) *API {
 	return &API{store: store, broker: broker, source: source}
 }
 
+func NewAPIWithProviders(store Store, broker Broker, source SourceProvider, executionProfiles ExecutionProfileProvider) *API {
+	return &API{store: store, broker: broker, source: source, executionProfiles: executionProfiles}
+}
+
 func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/runtime/healthz", a.health)
 	mux.HandleFunc("GET /v1/runtime/projects", a.projects)
+	mux.HandleFunc("GET /v1/runtime/projects/{project_id}/execution-profiles", a.projectExecutionProfiles)
 	mux.HandleFunc("POST /v1/runtime/projects/{project_id}/source:read", a.projectSource)
 	mux.HandleFunc("GET /v1/runtime/sessions", a.sessions)
 	mux.HandleFunc("POST /v1/runtime/sessions", a.createSession)
@@ -49,6 +55,35 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/runtime/runs/{run_id}/events:poll", a.runEventsPoll)
 	mux.HandleFunc("POST /v1/runtime/bootstrap-syncs", a.createSync)
 	mux.HandleFunc("GET /v1/runtime/bootstrap-syncs/{sync_id}", a.sync)
+}
+
+func (a *API) projectExecutionProfiles(w http.ResponseWriter, r *http.Request) {
+	if a.executionProfiles == nil {
+		writeError(w, http.StatusServiceUnavailable, "EXECUTION_PROFILES_DISABLED", false)
+		return
+	}
+	projectID := strings.TrimSpace(r.PathValue("project_id"))
+	if projectID == "" || len(projectID) > 256 {
+		writeError(w, http.StatusBadRequest, "PROJECT_ID_INVALID", false)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	snapshot, err := a.executionProfiles.List(ctx, projectID)
+	if err == nil {
+		writeData(w, http.StatusOK, snapshot)
+		return
+	}
+	switch {
+	case errors.Is(err, ErrExecutionProfilesAgentOffline):
+		writeError(w, http.StatusServiceUnavailable, "AGENT_OFFLINE", true)
+	case errors.Is(err, ErrExecutionProfilesBusy):
+		writeError(w, http.StatusTooManyRequests, "EXECUTION_PROFILES_BUSY", true)
+	case errors.Is(err, context.DeadlineExceeded):
+		writeError(w, http.StatusGatewayTimeout, "EXECUTION_PROFILES_TIMEOUT", true)
+	default:
+		writeError(w, http.StatusServiceUnavailable, "EXECUTION_PROFILES_UNAVAILABLE", true)
+	}
 }
 
 func (a *API) projectSource(w http.ResponseWriter, r *http.Request) {
@@ -184,7 +219,8 @@ func (a *API) createRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var request struct {
-		Prompt string `json:"prompt"`
+		Prompt              string `json:"prompt"`
+		PermissionProfileID string `json:"permission_profile_id,omitempty"`
 	}
 	if !decodeJSON(w, r, &request) {
 		return
@@ -194,7 +230,7 @@ func (a *API) createRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "PROMPT_REQUIRED", false)
 		return
 	}
-	item, sequence, _, err := a.store.CreateRun(r.Context(), r.PathValue("session_id"), request.Prompt, key, RequestHash(request))
+	item, sequence, _, err := a.store.CreateRun(r.Context(), r.PathValue("session_id"), request.Prompt, request.PermissionProfileID, key, RequestHash(request))
 	if errors.Is(err, ErrIdempotencyConflict) {
 		writeError(w, http.StatusConflict, "IDEMPOTENCY_CONFLICT", false)
 		return

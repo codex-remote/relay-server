@@ -49,6 +49,7 @@ func TestRuntimeScopePolicyBelongsToServerComposition(t *testing.T) {
 		{http.MethodGet, "/v1/runtime/projects", "runtime:read"},
 		{http.MethodHead, "/v1/runtime/projects", "runtime:read"},
 		{http.MethodPost, "/v1/runtime/sessions", "runtime:write"},
+		{http.MethodGet, "/v1/runtime/projects/p1/execution-profiles", "runtime:read"},
 		{http.MethodPost, "/v1/runtime/projects/p1/source:read", "source:read"},
 	}
 	for _, test := range tests {
