@@ -29,6 +29,8 @@ Codex Remote Relay Server 的重要变更记录在此文件中。
 - Added `POST /v1/runtime/projects/{project_id}/source:read` with unified Runtime Auth, bounded in-memory request correlation, Agent disconnect/timeout handling, OpenAPI and v2 source message fixtures; source content is never persisted.
 - Added an isolated `mobileweb` launcher profile on port `18775` with LAN-compatible Runtime CORS for the guarded one-command Mobile Web deployment flow.
 - Added a `mobileweb-debug` launcher profile on `18875` with Auth Control on `18876`, keeping the Homebrew/release `mobileweb` profile on `18775/18776`.
+- Added native iPhone pairing, Refresh rotation and session-revocation endpoints that return the rotating Refresh credential for Keychain storage without setting browser cookies.
+- Added `GET /v1/runtime/projects/{project_id}/execution-profiles` and persisted `permission_profile_id` through Runtime Run creation and command delivery.
 
 ### Changed
 
@@ -36,6 +38,7 @@ Codex Remote Relay Server 的重要变更记录在此文件中。
 - The `mobileweb` Run Server profile now listens on `127.0.0.1:18775`; browsers enter through the Mobile Web Gateway instead of connecting directly.
 - Runtime routes now use centralized default-deny Bearer/Scope middleware, including `source:read` for source access.
 - Runtime Auth now plugs into Server composition through a minimal module interface; Runtime path-to-scope policy belongs to Server while Auth remains route-agnostic.
+- The iPhone App now consumes authenticated Runtime v1 HTTP/SSE; `/ws/app` remains only as a temporary compatibility route pending final cross-client validation.
 
 ### Fixed
 

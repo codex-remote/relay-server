@@ -31,7 +31,28 @@ func (a *PublicAPI) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/auth/pairing-grants:exchange", a.exchange)
 	mux.HandleFunc("POST /v1/auth/tokens:refresh", a.refresh)
 	mux.HandleFunc("POST /v1/auth/sessions/current:revoke", a.revoke)
+	mux.HandleFunc("POST /v1/auth/native/pairing-grants:exchange", a.nativeExchange)
+	mux.HandleFunc("POST /v1/auth/native/tokens:refresh", a.nativeRefresh)
+	mux.HandleFunc("POST /v1/auth/native/sessions/current:revoke", a.nativeRevoke)
 	mux.HandleFunc("GET /v1/auth/me", a.me)
+}
+
+type nativeTokenPair struct {
+	AccessToken     string    `json:"access_token"`
+	TokenType       string    `json:"token_type"`
+	ExpiresIn       int64     `json:"expires_in"`
+	AccessExpiresAt time.Time `json:"access_expires_at"`
+	RefreshToken    string    `json:"refresh_token"`
+	RefreshExpires  time.Time `json:"refresh_expires_at"`
+	Client          Client    `json:"client"`
+}
+
+func newNativeTokenPair(pair TokenPair) nativeTokenPair {
+	return nativeTokenPair{
+		AccessToken: pair.AccessToken, TokenType: pair.TokenType, ExpiresIn: pair.ExpiresIn,
+		AccessExpiresAt: pair.AccessExpiresAt, RefreshToken: pair.RefreshToken,
+		RefreshExpires: pair.RefreshExpires, Client: pair.Client,
+	}
 }
 
 func (a *PublicAPI) exchange(w http.ResponseWriter, r *http.Request) {
@@ -53,6 +74,24 @@ func (a *PublicAPI) exchange(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, pair)
 }
 
+func (a *PublicAPI) nativeExchange(w http.ResponseWriter, r *http.Request) {
+	if !checkBrowserRequest(w, r) {
+		return
+	}
+	var request struct {
+		Code string `json:"code"`
+	}
+	if !decodeRequest(w, r, &request) {
+		return
+	}
+	pair, err := a.service.ExchangePairingGrant(r.Context(), request.Code)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, newNativeTokenPair(pair))
+}
+
 func (a *PublicAPI) refresh(w http.ResponseWriter, r *http.Request) {
 	if !checkBrowserRequest(w, r) {
 		return
@@ -72,6 +111,24 @@ func (a *PublicAPI) refresh(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, pair)
 }
 
+func (a *PublicAPI) nativeRefresh(w http.ResponseWriter, r *http.Request) {
+	if !checkBrowserRequest(w, r) {
+		return
+	}
+	var request struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	if !decodeRequest(w, r, &request) {
+		return
+	}
+	pair, err := a.service.Refresh(r.Context(), request.RefreshToken)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, newNativeTokenPair(pair))
+}
+
 func (a *PublicAPI) revoke(w http.ResponseWriter, r *http.Request) {
 	if !checkBrowserRequest(w, r) {
 		return
@@ -85,6 +142,24 @@ func (a *PublicAPI) revoke(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	a.clearRefreshCookie(w)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *PublicAPI) nativeRevoke(w http.ResponseWriter, r *http.Request) {
+	if !checkBrowserRequest(w, r) {
+		return
+	}
+	var request struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	if !decodeRequest(w, r, &request) {
+		return
+	}
+	err := a.service.RevokeSession(r.Context(), request.RefreshToken, "client_logout")
+	if err != nil && !errors.Is(err, ErrInvalidCredential) && !errors.Is(err, ErrRevoked) {
+		writeServiceError(w, err)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

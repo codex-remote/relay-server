@@ -21,7 +21,7 @@ type Store interface {
 	CreateSession(context.Context, string, string, string, string) (Session, bool, error)
 	ListSessions(context.Context, string) ([]Session, error)
 	GetSession(context.Context, string) (Session, error)
-	CreateRun(context.Context, string, string, string, string) (Run, int64, bool, error)
+	CreateRun(context.Context, string, string, string, string, string) (Run, int64, bool, error)
 	ListRuns(context.Context, string) ([]Run, error)
 	GetRun(context.Context, string, bool) (Run, error)
 	RequestCancel(context.Context, string) (Run, error)

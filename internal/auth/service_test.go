@@ -3,6 +3,7 @@ package auth
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -289,5 +290,43 @@ func TestPublicAPIRequiresBrowserHeaderAndSetsProtectedRefreshCookie(t *testing.
 	mux.ServeHTTP(control, httptest.NewRequest(http.MethodPost, "/v1/auth-control/pairing-grants", nil))
 	if control.Code != http.StatusNotFound {
 		t.Fatalf("Auth Control leaked into public API: %d", control.Code)
+	}
+}
+
+func TestNativeAuthReturnsRotatingRefreshTokenWithoutCookie(t *testing.T) {
+	store := newMemoryStore()
+	service := NewService(store, Config{})
+	grant, err := service.CreatePairingGrant(context.Background(), "Native iPhone", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	NewPublicAPI(service, HTTPConfig{}).Register(mux)
+
+	exchange := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/auth/native/pairing-grants:exchange", strings.NewReader(`{"code":"`+grant.Code+`"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set(CSRFHeader, "1")
+	mux.ServeHTTP(exchange, request)
+	if exchange.Code != http.StatusOK || exchange.Header().Get("Set-Cookie") != "" {
+		t.Fatalf("native exchange status=%d cookie=%q body=%s", exchange.Code, exchange.Header().Get("Set-Cookie"), exchange.Body.String())
+	}
+	var first struct {
+		Data struct {
+			AccessToken  string `json:"access_token"`
+			RefreshToken string `json:"refresh_token"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(exchange.Body.Bytes(), &first); err != nil || first.Data.AccessToken == "" || first.Data.RefreshToken == "" {
+		t.Fatalf("decode native exchange: %v body=%s", err, exchange.Body.String())
+	}
+
+	refresh := httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/v1/auth/native/tokens:refresh", strings.NewReader(`{"refresh_token":"`+first.Data.RefreshToken+`"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set(CSRFHeader, "1")
+	mux.ServeHTTP(refresh, request)
+	if refresh.Code != http.StatusOK || strings.Contains(refresh.Body.String(), first.Data.RefreshToken) {
+		t.Fatalf("native refresh status=%d body=%s", refresh.Code, refresh.Body.String())
 	}
 }

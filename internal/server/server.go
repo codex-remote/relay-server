@@ -56,9 +56,10 @@ func newServer(config config.Config, logger *slog.Logger, store runtimecore.Stor
 	mux.HandleFunc("/ws/agent", websocketHandler.ServeRole(protocol.RoleAgent))
 	if store != nil && broker != nil {
 		sourceGateway := runtimecore.NewSourceGateway(registry)
+		executionProfileGateway := runtimecore.NewExecutionProfileGateway(registry)
 		runtimeMux := http.NewServeMux()
 		// Runtime auth is centralized here. Individual Runtime handlers receive an authenticated Principal.
-		runtimecore.NewAPIWithSource(store, broker, sourceGateway).Register(runtimeMux)
+		runtimecore.NewAPIWithProviders(store, broker, sourceGateway, executionProfileGateway).Register(runtimeMux)
 		var runtimeHandler http.Handler = runtimeMux
 		if authModule != nil {
 			runtimeHandler = authModule.Protect(runtimeHandler, runtimeRequiredScope)
@@ -66,7 +67,7 @@ func newServer(config config.Config, logger *slog.Logger, store runtimecore.Stor
 			server.control = authModule.ControlHandler()
 		}
 		mux.Handle("/v1/runtime/", runtimeHandler)
-		server.coordinator = runtimecore.NewCoordinatorWithSource(store, broker, registry, logger, sourceGateway)
+		server.coordinator = runtimecore.NewCoordinatorWithProviders(store, broker, registry, logger, sourceGateway, executionProfileGateway)
 		messageRouter.SetObserver(server.coordinator)
 	}
 	server.handler = requestID(cors(config.AllowedOrigin, securityHeaders(mux)))
